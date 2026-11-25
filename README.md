@@ -29,6 +29,10 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
 
 ## Run it on the laptop
 
+**Easiest (Windows):** double-click **`Start Stewart Nest.bat`**. On the first run it installs Node.js if needed, installs the app, sets up the database and opens the browser. After that it just starts the app.
+
+**By hand:**
+
 You need **Node.js 20 or newer** (https://nodejs.org, LTS) and **Git**.
 
 ```bash
