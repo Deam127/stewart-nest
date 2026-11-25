@@ -1,6 +1,6 @@
 // The Stewart Nest — family calendar events: public holidays, school terms, Skyler's school activities,
 // bin day, work routine, birthdays, appointments. Repeats, "school days only", skips and reminders.
-import { json, bad, body, isDate, addDays, weekday, saToday, fmtShort, notify, familyIds } from './util.js';
+import { json, bad, body, isDate, addDays, weekday, saToday, fmtShort, notify, familyIds, schoolContext } from './util.js';
 
 export const CATEGORIES = {
   holiday: '🇿🇦 Public holiday', term: '🏫 School term', school: '🎒 School', school_holiday: '🏖️ School holiday',
@@ -9,14 +9,7 @@ export const CATEGORIES = {
 const FIELDS = ['title', 'category', 'who', 'start_date', 'end_date', 'start_time', 'end_time', 'repeat', 'repeat_days', 'repeat_until',
   'school_days_only', 'skip_holidays', 'quiet', 'remind', 'notes'];
 
-async function context(db) {
-  const { results } = await db.prepare("SELECT category, start_date, end_date FROM events WHERE active = 1 AND category IN ('holiday','term','school_holiday')").all();
-  const holidays = new Set(results.filter((r) => r.category === 'holiday').map((r) => r.start_date));
-  const schoolOff = new Set(results.filter((r) => r.category === 'school_holiday').map((r) => r.start_date));
-  const terms = results.filter((r) => r.category === 'term').map((r) => [r.start_date, r.end_date || r.start_date]);
-  const isSchoolDay = (d) => weekday(d) <= 5 && !holidays.has(d) && !schoolOff.has(d) && terms.some(([a, b]) => d >= a && d <= b);
-  return { holidays, isSchoolDay };
-}
+const context = schoolContext;
 
 // All occurrences of all events between two dates (inclusive)
 export async function occurrences(db, from, to, userId = null) {

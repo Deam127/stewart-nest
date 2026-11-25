@@ -1,7 +1,7 @@
 // The Stewart Nest — API (Cloudflare Worker + D1)
 // Static files in /public are served by Workers Assets; everything under /api lands here.
 
-import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask } from './util.js';
+import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask, schoolContext, templateApplies } from './util.js';
 import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
 import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
@@ -9,7 +9,7 @@ import { events as eventApi, occurrences } from './events.js';
 import { phase2 } from './phase2.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
-  'Yard', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
+  'Yard', 'Dogs', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
 
 const BREAKFASTS = { 1: 'b1', 2: 'b2', 3: 'b3', 4: 'b4', 5: 'b5', 6: 'b6', 7: 'b7' };
 const LUNCHES = { 1: 'l_tt', 2: 'l_em', 3: 'l_tt', 4: 'l_nd', 5: 'l_lo', 6: 'l_pj', 7: 'l_rc' };
@@ -220,8 +220,8 @@ async function api(req, env, url) {
       // Today: everything due on or before that day that is still open, plus what was ticked that day
       sql = `SELECT t.*, u.name AS assignee_name, u.emoji, u.colour, a.name AS assigned_by_name
         FROM tasks t JOIN users u ON u.id = t.assignee LEFT JOIN users a ON a.id = t.assigned_by
-        WHERE ((t.done_at IS NULL AND t.due_date <= ?) OR t.done_at = ?)`;
-      binds = [date, date];
+        WHERE ((t.done_at IS NULL AND t.due_date <= ? AND (t.routine IS NULL OR t.due_date = ?)) OR t.done_at = ?)`;
+      binds = [date, date, date];
     } else {
       // A past or future day: what is due that day (and, for past days, whether/when it was done)
       sql = `SELECT t.*, u.name AS assignee_name, u.emoji, u.colour, a.name AS assigned_by_name
@@ -235,12 +235,10 @@ async function api(req, env, url) {
     // Future days also preview repeating chores that will appear that day
     let upcoming = [];
     if (date > today) {
-      const wd = String(weekday(date));
-      const { results: tpls } = await db.prepare(`SELECT t.id, t.title, t.area, t.assignee, t.points, u.name AS assignee_name, u.emoji, u.colour
+      const ctx = await schoolContext(db);
+      const { results: tpls } = await db.prepare(`SELECT t.id, t.title, t.area, t.assignee, t.points, t.days, t.when_school, t.routine, u.name AS assignee_name, u.emoji, u.colour
         FROM task_templates t JOIN users u ON u.id = t.assignee WHERE t.active = 1 ${user ? 'AND t.assignee = ?' : ''}`).bind(...(user ? [user] : [])).all();
-      const { results: withDays } = await db.prepare('SELECT id, days FROM task_templates').all();
-      const dmap = Object.fromEntries(withDays.map((r) => [r.id, r.days]));
-      upcoming = tpls.filter((t) => dmap[t.id].includes(wd));
+      upcoming = tpls.filter((t) => templateApplies(t, date, ctx));
     }
     return json({ today, date, tasks: results.map((t) => decorateTask(t, today)), upcoming });
   }
@@ -251,8 +249,9 @@ async function api(req, env, url) {
     const points = Math.max(1, Math.min(50, Number(b.points) || 5));
     const due = isDate(b.due_date) ? b.due_date : saToday();
     if (b.repeat_days && /^[1-7]+$/.test(b.repeat_days)) {
-      await db.prepare('INSERT INTO task_templates (title, area, assignee, days, points, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(b.title.trim(), b.area, b.assignee, b.repeat_days, points, me.id).run();
+      const when = ['school', 'no_school'].includes(b.when_school) ? b.when_school : 'any';
+      await db.prepare('INSERT INTO task_templates (title, area, assignee, days, points, created_by, when_school, routine) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(b.title.trim(), b.area, b.assignee, b.repeat_days, points, me.id, when, b.routine === 'morning' ? 'morning' : null).run();
     } else {
       await db.prepare('INSERT INTO tasks (title, area, assignee, assigned_by, due_date, points, note) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .bind(b.title.trim(), b.area, b.assignee, me.id, due, points, b.note || null).run();
@@ -273,6 +272,14 @@ async function api(req, env, url) {
     await db.prepare('UPDATE tasks SET done_at = ? WHERE id = ?').bind(done ? day : null, t.id).run();
     if (done && t.assigned_by && t.assigned_by !== me.id && !t.template_id)
       await notify(db, [t.assigned_by], `✅ ${me.name} finished: ${t.title}`, '#tasks');
+    if (done && t.routine === 'morning') {
+      const left = await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE assignee = ? AND due_date = ? AND routine = 'morning' AND done_at IS NULL").bind(t.assignee, t.due_date).first();
+      if (!left.n) {
+        const who = await db.prepare('SELECT name FROM users WHERE id = ?').bind(t.assignee).first();
+        const grownUps = (await db.prepare('SELECT id FROM users WHERE active = 1 AND (is_parent = 1 OR is_admin = 1) AND id != ?').bind(t.assignee).all()).results.map((u) => u.id);
+        await notify(db, grownUps, `☀️ ${who?.name || t.assignee} finished the morning check`, '#today');
+      }
+    }
     return json({ ok: true });
   }
   if (parts[0] === 'tasks' && parts[1] && !parts[2] && method === 'DELETE') {
@@ -300,8 +307,10 @@ async function api(req, env, url) {
       const t = await db.prepare('SELECT * FROM task_templates WHERE id = ?').bind(id).first();
       if (!t) return bad('Not found', 404);
       const days = b.days && /^[1-7]+$/.test(b.days) ? b.days : t.days;
-      await db.prepare('UPDATE task_templates SET title = ?, area = ?, assignee = ?, days = ?, points = ? WHERE id = ?')
-        .bind(b.title ?? t.title, b.area ?? t.area, b.assignee ?? t.assignee, days, b.points ?? t.points, id).run();
+      const when = ['any', 'school', 'no_school'].includes(b.when_school) ? b.when_school : t.when_school;
+      const routine = 'routine' in b ? (b.routine === 'morning' ? 'morning' : null) : t.routine;
+      await db.prepare('UPDATE task_templates SET title = ?, area = ?, assignee = ?, days = ?, points = ?, when_school = ?, routine = ? WHERE id = ?')
+        .bind(b.title ?? t.title, b.area ?? t.area, b.assignee ?? t.assignee, days, b.points ?? t.points, when, routine, id).run();
       return json({ ok: true });
     }
   }

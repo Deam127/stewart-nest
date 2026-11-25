@@ -27,8 +27,10 @@ const repeatText = (e) => e.repeat === 'weekly' ? `Every ${[...(e.repeat_days ||
     ${hol.map((e) => `<div class="badge warn" style="margin-bottom:6px">🇿🇦 ${esc(e.title)}: public holiday</div>`).join('')}
     ${term ? `<div class="badge ok" style="margin-bottom:6px">🏫 ${esc(term.title)}${weekdayOf(date) <= 5 && !hol.length ? ': school day' : ''}</div>` : (weekdayOf(date) <= 5 ? '<div class="badge rain" style="margin-bottom:6px">🏖️ No school (holidays)</div>' : '')}
     ${rest.map(row).join('') || '<div class="muted">Nothing scheduled.</div>'}
-    <button class="btn small ghost" style="margin-top:8px" id="ev-add">+ Add event</button></div>`;
+    <div class="row wrap" style="margin-top:8px"><button class="btn small ghost" id="ev-add">+ Add event</button>
+      <button class="btn small ghost" id="ev-school">🎒 School date for Skyler</button></div></div>`;
   $('#ev-add', box).onclick = () => eventSheet({ start_date: date }, () => viewDay(date));
+  $('#ev-school', box).onclick = () => eventSheet(schoolPreset(date), () => viewDay(date));
   $$('[data-evskip]', box).forEach((b) => b.onclick = async () => {
     if (!confirm('Skip this one day? (The rest of the series stays.)')) return;
     await api(`events/${b.dataset.evskip}/skip`, { body: { date } }); toast('Skipped for this day'); viewDay(date);
@@ -38,6 +40,8 @@ const repeatText = (e) => e.repeat === 'weekly' ? `Every ${[...(e.repeat_days ||
     eventSheet(all.find((x) => x.id == b.dataset.evedit), () => viewDay(date));
   });
 });
+// Quick preset for Skyler's school dates: sports days, outings, tests, civvies day, payments…
+const schoolPreset = (date) => ({ start_date: date, category: 'school', who: S.users.find((u) => u.id === 'skyler') ? 'skyler' : '', remind: 'day_before', title: '' });
 const weekdayOf = (d) => (toD(d).getDay() + 6) % 7 + 1;
 
 // ================= event editor =================
@@ -47,7 +51,7 @@ function eventSheet(e, done) {
   const who = new Set((e.who || '').split(',').filter(Boolean));
   const s = sheet(`
     <div class="spread"><h2 style="margin:0">${isNew ? 'New event' : 'Edit event'}</h2><button class="btn small ghost" data-close>Close</button></div>
-    <label class="f">What</label><input type="text" id="e-title" value="${esc(e.title || '')}" placeholder="e.g. Skyler soccer practice">
+    <label class="f">What</label><input type="text" id="e-title" value="${esc(e.title || '')}" placeholder="e.g. Sports day, test, civvies day (R10), outing form due">
     <label class="f">Type</label><select id="e-cat">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${(e.category || 'other') === k ? 'selected' : ''}>${CAT_ICON[k]} ${v}</option>`).join('')}</select>
     <label class="f">Who (none ticked = whole family)</label>
     <div class="days-pick" id="e-who">${S.users.map((u) => `<label><input type="checkbox" value="${u.id}" ${who.has(u.id) ? 'checked' : ''}><span>${u.emoji} ${esc(u.name)}</span></label>`).join('')}</div>
@@ -101,7 +105,7 @@ ROUTES.events = async () => {
   $('#view').innerHTML = `<h1>📅 Events & schedule</h1>
     <div class="row wrap" style="margin-bottom:8px">
       <div class="seg">${[['', 'Everyone'], ...S.users.map((u) => [u.id, u.emoji + ' ' + u.name])].map(([k, l]) => `<button data-ew="${k}" class="${whoF === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
-      <span class="grow"></span><button class="btn" id="ev-new">+ Add event</button></div>
+      <span class="grow"></span><button class="btn ghost" id="ev-school">🎒 School date</button><button class="btn" id="ev-new">+ Add event</button></div>
     <p class="muted">Public holidays and the government school calendar are loaded up to December 2027. Private schools set their own dates, so check against Skyler's school letters.</p>
     <h2>Next 3 months</h2>
     ${groups.map(([m, l]) => `<h3>${m}</h3><div class="card">${l.map((o) => `<div class="ev" data-evopen="${o.id}" style="cursor:pointer">
@@ -115,6 +119,7 @@ ROUTES.events = async () => {
       ${e.remind !== 'none' ? '<span>⏰</span>' : ''}</div>`).join('')}</div>`;
   $$('[data-ew]').forEach((b) => b.onclick = () => { P4.evWho = b.dataset.ew; ROUTES.events(); });
   $('#ev-new').onclick = () => eventSheet({ start_date: today, who: whoF }, ROUTES.events);
+  $('#ev-school').onclick = () => eventSheet(schoolPreset(today), ROUTES.events);
   $$('[data-evopen]').forEach((r) => r.onclick = () => eventSheet(all.events.find((e) => e.id == r.dataset.evopen), ROUTES.events));
 };
 const P4 = { evWho: '', recTab: 's', season: 'summer' };

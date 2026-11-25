@@ -42,9 +42,24 @@ export async function notify(db, userIds, text, link = null) {
 // i.e. not done yet, or only done on/after that day. So an undone chore carries over
 // (its "late" counter grows) instead of piling up duplicates, and the next fresh copy
 // appears the day after it is finally ticked.
+// School days: inside a school term, Monday–Friday, not a public holiday or special school holiday
+export async function schoolContext(db) {
+  let rows = [];
+  try { rows = (await db.prepare("SELECT category, start_date, end_date FROM events WHERE active = 1 AND category IN ('holiday','term','school_holiday')").all()).results; } catch { /* no events table yet */ }
+  const holidays = new Set(rows.filter((r) => r.category === 'holiday').map((r) => r.start_date));
+  const schoolOff = new Set(rows.filter((r) => r.category === 'school_holiday').map((r) => r.start_date));
+  const terms = rows.filter((r) => r.category === 'term').map((r) => [r.start_date, r.end_date || r.start_date]);
+  const isSchoolDay = (d) => weekday(d) <= 5 && !holidays.has(d) && !schoolOff.has(d) && terms.some(([a, b]) => d >= a && d <= b);
+  return { holidays, isSchoolDay };
+}
+// Does a repeating chore apply on this date? (weekday + 'school' / 'no_school' rule)
+export const templateApplies = (t, d, ctx) => t.days.includes(String(weekday(d))) &&
+  (!t.when_school || t.when_school === 'any' || (t.when_school === 'school') === ctx.isSchoolDay(d));
+
 export async function ensureTemplateTasks(db, today) {
   const { results: tpls } = await db.prepare('SELECT * FROM task_templates WHERE active = 1').all();
   if (!tpls.length) return;
+  const ctx = await schoolContext(db);
   // Chores start counting from the first day the app was used (no backlog on day one)
   let start = (await db.prepare("SELECT value FROM settings WHERE key = 'tasks_start'").first())?.value;
   if (!start) { start = today; await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tasks_start', ?)").bind(today).run(); }
@@ -58,14 +73,14 @@ export async function ensureTemplateTasks(db, today) {
   for (let i = 6; i >= 0; i--) {
     const d = addDays(today, -i);
     if (d < start) continue;
-    const wd = String(weekday(d));
     for (const t of tpls) {
-      if (!t.days.includes(wd)) continue;
+      if (!templateApplies(t, d, ctx)) continue;
       const list = byT[t.id] || (byT[t.id] = []);
       if (list.some((x) => x.due === d)) continue; // already there
-      if (list.some((x) => x.due < d && (!x.done || x.done >= d))) continue; // earlier one still carrying
-      stmts.push(db.prepare(`INSERT OR IGNORE INTO tasks (title, area, assignee, assigned_by, due_date, points, template_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(t.title, t.area, t.assignee, t.created_by, d, t.points, t.id));
+      // an undone chore carries over instead of piling up — except daily routine checks (a missed bed stays missed)
+      if (!t.routine && list.some((x) => x.due < d && (!x.done || x.done >= d))) continue;
+      stmts.push(db.prepare(`INSERT OR IGNORE INTO tasks (title, area, assignee, assigned_by, due_date, points, template_id, routine)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(t.title, t.area, t.assignee, t.created_by, d, t.points, t.id, t.routine || null));
       list.push({ due: d, done: null });
     }
   }

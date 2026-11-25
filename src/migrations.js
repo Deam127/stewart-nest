@@ -52,6 +52,56 @@ const scheduleSql = [
   ev({ title: '👶 Madilea due date', category: 'family', start: '2027-01-06', remind: 'day_before' }),
 ];
 
+
+// ---------- v5: rest of 2026 schedule, Skyler's school day, morning check, dogs, bin rule ----------
+const HOLIDAYS_2026 = [
+  ['2026-01-01', "New Year's Day"], ['2026-03-21', 'Human Rights Day'], ['2026-04-03', 'Good Friday'], ['2026-04-06', 'Family Day'],
+  ['2026-04-27', 'Freedom Day'], ['2026-05-01', "Workers' Day"], ['2026-06-16', 'Youth Day'], ['2026-08-09', "National Women's Day"],
+  ['2026-08-10', "Public holiday (Women's Day moved)"], ['2026-09-24', 'Heritage Day'], ['2026-11-04', 'Local Government Elections (once-off)'],
+];
+const TERMS_2026 = [
+  ['2026-01-14', '2026-03-27', 'School term 1 (2026)'],
+  ['2026-04-08', '2026-06-26', 'School term 2 (2026)'],
+  ['2026-07-21', '2026-09-23', 'School term 3 (2026)'],
+];
+const SKYLER_TPL = (title, area, days, pts, when, routine) =>
+  `INSERT INTO task_templates (title, area, assignee, days, points, created_by, when_school, routine) VALUES (${q(title)}, ${q(area)}, 'skyler', '${days}', ${pts}, 'shirley', '${when}', ${q(routine)})`;
+
+const v5 = [
+  "ALTER TABLE task_templates ADD COLUMN when_school TEXT NOT NULL DEFAULT 'any'",
+  'ALTER TABLE task_templates ADD COLUMN routine TEXT',
+  'ALTER TABLE tasks ADD COLUMN routine TEXT',
+  ...HOLIDAYS_2026.map(([d, t]) => ev({ title: t, category: 'holiday', start: d })),
+  ...TERMS_2026.map(([a, b, t]) => ev({ title: t, category: 'term', who: 'skyler', start: a, end: b, quiet: 1 })),
+  ...TERMS_2026.flatMap(([a, b, t]) => [
+    ev({ title: '🏫 Schools open', category: 'school', who: 'skyler', start: a, remind: 'day_before', notes: `${t} starts.` }),
+    ev({ title: '🎉 Schools close', category: 'school', who: 'skyler', start: b, remind: 'day_before', notes: `Last day of ${t}.` }),
+  ]),
+  ev({ title: 'Special school holiday', category: 'school_holiday', who: 'skyler', start: '2026-06-15' }),
+  // Skyler's school day (typical Gauteng public school hours; edit if his school differs)
+  `UPDATE events SET title = '🎒 Skyler at school', start_time = '07:30', end_time = '14:00',
+     notes = 'Public school, public transport. Typical hours; edit the times if his school differs.' WHERE title = '🚌 Skyler to school (public transport)'`,
+  // Skyler's morning check (every morning; "get dressed for school" only on school days)
+  "UPDATE task_templates SET routine = 'morning', title = '☀️ Make your bed' WHERE assignee = 'skyler' AND title = 'Make your bed'",
+  "UPDATE task_templates SET routine = 'morning', title = '☀️ Make or help with breakfast' WHERE assignee = 'skyler' AND title = 'Make or help with breakfast'",
+  SKYLER_TPL('☀️ Brush your teeth', 'Bathroom', '1234567', 2, 'any', 'morning'),
+  SKYLER_TPL('☀️ Wash your face', 'Bathroom', '1234567', 2, 'any', 'morning'),
+  SKYLER_TPL('☀️ Get dressed for school', 'Second bedroom', '12345', 2, 'school', 'morning'),
+  // No school (weekends, holidays): help around the house
+  SKYLER_TPL('Help inside the house (ask Mom what is needed)', 'Lounge', '1234567', 10, 'no_school', null),
+  SKYLER_TPL('Help outside (yard & garden)', 'Yard', '1234567', 10, 'no_school', null),
+  // Two dogs need walking: Skyler after school / in the day, the whole family on Sunday
+  SKYLER_TPL('🐕 Walk the dogs', 'Dogs', '123456', 10, 'any', null),
+  "UPDATE task_templates SET title = '💪 Family walk with the dogs' WHERE title = '💪 Family walk with the dog'",
+  // Bins go out on Wednesday (collection day): Lee Roy on school days, Skyler on public & school holidays
+  "UPDATE task_templates SET title = '🗑️ Take the bins out (collection today)', area = 'Yard', days = '3', when_school = 'school' WHERE title = 'Put the bins out (collection Wednesday)'",
+  "UPDATE task_templates SET title = '🗑️ Take the bins out (collection today)', area = 'Yard', days = '3', when_school = 'school' WHERE title = 'Take out the bins'",
+  SKYLER_TPL('🗑️ Take the bins out (collection today)', 'Yard', '3', 5, 'no_school', null),
+  "UPDATE events SET notes = 'Bins out on Wednesday morning: Lee Roy on school days, Skyler on public & school holidays.' WHERE title = '🗑️ Bin day'",
+  // stop the old Tuesday bin chore that may still be open
+  "DELETE FROM tasks WHERE title = 'Put the bins out (collection Wednesday)' AND done_at IS NULL",
+];
+
 export const UPGRADES = {
   3: [
     'ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
@@ -102,4 +152,5 @@ export const UPGRADES = {
     // bins go out the night before collection (Wednesday), after Lee Roy gets home
     "UPDATE task_templates SET title = 'Put the bins out (collection Wednesday)', days = '2' WHERE title = 'Take out the bins'",
   ],
+  5: v5,
 };

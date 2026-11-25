@@ -362,13 +362,24 @@ async function viewToday() {
   const today = todayStr();
   const mine = S.taskView === 'mine';
   const t = await api(`tasks?date=${today}&today=${today}${mine ? '&user=' + S.me.id : ''}`);
-  const open = t.tasks.filter((x) => !x.done_at), done = t.tasks.filter((x) => x.done_at);
+  // the morning check (routine) gets its own box at the top, per person
+  const morning = t.tasks.filter((x) => x.routine === 'morning');
+  const rest = t.tasks.filter((x) => x.routine !== 'morning');
+  const open = rest.filter((x) => !x.done_at), done = rest.filter((x) => x.done_at);
   const carried = open.filter((x) => x.late_days > 0), fresh = open.filter((x) => x.late_days === 0);
-  const pts = done.reduce((s, x) => s + x.earned, 0);
+  const pts = t.tasks.filter((x) => x.done_at).reduce((s, x) => s + x.earned, 0);
+  const mornBox = groupBy(morning, 'assignee_name').map(([name, l]) => {
+    const n = l.filter((x) => x.done_at).length;
+    return `<div class="card" style="border-color:#f0d58a;background:#fffbea">
+      <div class="spread"><strong>☀️ ${mine ? 'Morning check' : esc(name) + "'s morning check"}</strong><span>${n}/${l.length}${n === l.length ? ' 🎉' : ''}</span></div>
+      <div class="bar ${n === l.length ? 'full' : ''}"><i style="width:${Math.round((n / l.length) * 100)}%"></i></div>
+      ${l.map(taskRow).join('')}</div>`;
+  }).join('');
   $('#view').innerHTML = `
     <div class="spread"><h1>${mine ? 'My checklist' : 'Family checklist'}</h1>
       <div class="seg"><button data-v="mine" class="${mine ? 'on' : ''}">Mine</button><button data-v="all" class="${mine ? '' : 'on'}">Everyone</button></div></div>
-    <div class="muted">${nice(today)} · ${open.length} to do · ${done.length} done · +${pts} pts today</div>
+    <div class="muted">${nice(today)} · ${open.length + morning.filter((x) => !x.done_at).length} to do · ${done.length + morning.filter((x) => x.done_at).length} done · +${pts} pts today</div>
+    ${mornBox}
     ${carried.length ? `<h2>⏳ Carried over</h2><div class="card">${carried.map(taskRow).join('')}</div>` : ''}
     <h2>Today</h2><div class="card">${fresh.length ? fresh.map(taskRow).join('') : `<div class="empty">${open.length ? 'Only carried-over tasks left 👆' : 'All done for today! 🎉'}</div>`}</div>
     ${done.length ? `<h2>Done today</h2><div class="card">${done.map(taskRow).join('')}</div>` : ''}
@@ -398,6 +409,9 @@ async function viewTasks(sub, presetDate) {
       </div>
       <label class="f">Repeat every… (leave empty for a one-off)</label>
       <div class="days-pick" id="t-days">${dayBoxes}</div>
+      <div class="row wrap" style="margin-top:6px"><select id="t-when" style="width:auto">
+        <option value="any">On those days</option><option value="school">Only on school days</option><option value="no_school">Only when there's no school (weekends & holidays)</option></select>
+        <label class="row"><input type="checkbox" id="t-morning"> ☀️ Part of the morning check</label></div>
       <label class="f">Note (optional)</label><input type="text" id="t-note" placeholder="Anything they should know">
       <button class="btn" style="margin-top:10px" id="t-add">Give task</button>
       <div class="muted" style="margin-top:6px">They get a notification. Tasks not ticked off carry over to the next day, and late ones earn half points.</div>
@@ -406,13 +420,13 @@ async function viewTasks(sub, presetDate) {
     ${byArea.length ? byArea.map(([a, l]) => `<h3>${a}</h3><div class="card">${l.map(taskRow).join('')}</div>`).join('') : '<div class="card empty">Nothing open. 🎉</div>'}
     <h2>🔁 Repeating chores</h2>
     <div class="card">${tpls.map((x) => `<div class="recipe-row"><span>${x.emoji} <strong>${esc(x.title)}</strong><br>
-      <span class="muted">${esc(x.area)} · ${x.days === '1234567' ? 'every day' : [...x.days].map((d) => WD[d - 1]).join(', ')} · ${x.points} pts</span></span>
+      <span class="muted">${esc(x.area)} · ${x.days === '1234567' ? 'every day' : [...x.days].map((d) => WD[d - 1]).join(', ')}${x.when_school === 'school' ? ' · school days only' : x.when_school === 'no_school' ? ' · no-school days only' : ''}${x.routine === 'morning' ? ' · ☀️ morning check' : ''} · ${x.points} pts</span></span>
       ${S.me.is_parent || x.created_by === S.me.id ? `<button class="btn small danger" data-deltpl="${x.id}">Stop</button>` : ''}</div>`).join('') || '<div class="empty">None</div>'}</div>`;
   if (sub === 'new') setTimeout(() => $('#t-title').focus(), 50);
   $('#t-add').onclick = async () => {
     const title = $('#t-title').value.trim(); if (!title) return toast('What is the task?');
     const repeat = $$('#t-days input:checked').map((c) => c.value).join('');
-    await api('tasks', { body: { title, assignee: $('#t-who').value, area: $('#t-area').value, due_date: $('#t-due').value, points: $('#t-pts').value, note: $('#t-note').value, repeat_days: repeat } });
+    await api('tasks', { body: { title, assignee: $('#t-who').value, area: $('#t-area').value, due_date: $('#t-due').value, points: $('#t-pts').value, note: $('#t-note').value, repeat_days: repeat, when_school: $('#t-when').value, routine: $('#t-morning').checked ? 'morning' : null } });
     toast(repeat ? 'Repeating chore added' : 'Task given');
     location.hash = '#tasks'; viewTasks();
   };
