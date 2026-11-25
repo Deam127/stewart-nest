@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f5d50">
+  <title>The Stewart Nest</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="top" hidden>
+    <div class="brand"><span class="logo">🪺</span> <span>The Stewart Nest</span></div>
+    <div class="top-right">
+      <span id="baby" class="chip baby" title="Countdown"></span>
+      <button id="bell" class="icon-btn" aria-label="Notifications">🔔<span id="bell-n" hidden></span></button>
+      <button id="me-btn" class="avatar" aria-label="Me"></button>
+    </div>
+  </header>
+
+  <main id="view"></main>
+
+  <div id="notif-panel" class="panel" hidden></div>
+  <div id="toast" hidden></div>
+
+  <nav id="nav" hidden>
+    <a href="#calendar" data-r="calendar"><span>📅</span>Calendar</a>
+    <a href="#today" data-r="today"><span>✅</span>My day</a>
+    <a href="#tasks" data-r="tasks"><span>🧹</span>Tasks</a>
+    <a href="#rewards" data-r="rewards"><span>🏆</span>Rewards</a>
+    <a href="#more" data-r="more"><span>⚙️</span>More</a>
+  </nav>
+
+  <script src="/app.js"></script>
+</body>
+</html>
