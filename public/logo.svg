@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 620" width="512" height="620">
+<defs>
+  <linearGradient id="gA" gradientUnits="userSpaceOnUse" x1="40.96000000000001" y1="40.96000000000001" x2="471.03999999999996" y2="471.03999999999996"><stop offset="0.5" stop-color="#2f6f9f"/><stop offset="0.5" stop-color="#c873a0"/></linearGradient>
+  <linearGradient id="gB" gradientUnits="userSpaceOnUse" x1="471.03999999999996" y1="40.96000000000001" x2="40.96000000000001" y2="471.03999999999996"><stop offset="0.5" stop-color="#b5476b"/><stop offset="0.5" stop-color="#3e8e4e"/></linearGradient>
+  <clipPath id="clip"><rect x="20.48" y="20.48" width="471.04" height="471.04" rx="102.4"/></clipPath>
+</defs>
+<rect x="20.48" y="20.48" width="471.04" height="471.04" rx="102.4" fill="#fbf8f3" stroke="#2f5d50" stroke-width="12.8"/>
+<g clip-path="url(#clip)"><rect x="8.294400000000024" y="163.84" width="495.41119999999995" height="184.32" rx="92.16" fill="url(#gB)" transform="rotate(-45 256.0 256.0)" opacity="0.95"/><rect x="8.294400000000024" y="163.84" width="495.41119999999995" height="184.32" rx="92.16" fill="url(#gA)" transform="rotate(45 256.0 256.0)" opacity="0.95"/></g>
+<path d="M256.0 163.84 L348.15999999999997 256.0 L256.0 348.15999999999997 L163.84 256.0 Z" fill="#fbf8f3"/>
+<text x="256.0" y="249.856" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="26.624" fill="#2f5d50">Stay</text>
+<text x="256.0" y="281.6" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="20.48" fill="#2f5d50">connected</text>
+<text x="135.68" y="133.632" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="29.696" fill="#fff">Lee</text>
+<text x="135.68" y="164.352" text-anchor="middle" font-family="Georgia, serif" font-size="23.552" fill="#fff" opacity="0.92">Roy</text>
+<text x="376.32" y="133.632" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="29.696" fill="#fff">Shirley</text>
+<text x="376.32" y="164.352" text-anchor="middle" font-family="Georgia, serif" font-size="23.552" fill="#fff" opacity="0.92">May</text>
+<text x="135.68" y="374.272" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="29.696" fill="#fff">Skyler</text>
+<text x="135.68" y="404.992" text-anchor="middle" font-family="Georgia, serif" font-size="23.552" fill="#fff" opacity="0.92">Roy</text>
+<text x="376.32" y="374.272" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="29.696" fill="#fff">Madilea</text>
+<text x="376.32" y="404.992" text-anchor="middle" font-family="Georgia, serif" font-size="23.552" fill="#fff" opacity="0.92">May</text>
+<text x="256" y="590" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="46" fill="#2f5d50">The Stewart Nest</text>
+</svg>

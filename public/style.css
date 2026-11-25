@@ -17,7 +17,7 @@ header#top {
   padding: 10px 14px; background: var(--brand); color: #fff;
 }
 .brand { font-weight: 700; display: flex; gap: 6px; align-items: center; }
-.logo { font-size: 1.3em; }
+.logo { width: 30px; height: 30px; border-radius: 7px; background: #fff; }
 .top-right { display: flex; gap: 8px; align-items: center; }
 .chip { font-size: .78rem; padding: 3px 9px; border-radius: 99px; background: var(--brand-2); color: var(--brand); white-space: nowrap; }
 .chip.baby { background: #fde7ef; color: #a23a62; }
@@ -50,7 +50,7 @@ label.f { display: block; margin: 8px 0 3px; font-size: .85rem; color: var(--mut
 
 /* login */
 .login { max-width: 420px; margin: 8vh auto; text-align: center; }
-.login .logo { font-size: 3rem; }
+
 .who { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0; }
 .who button { background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 14px 6px; cursor: pointer; }
 .who button.sel { border-color: var(--brand); background: var(--brand-2); }

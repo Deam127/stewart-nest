@@ -108,7 +108,7 @@ async function viewLogin() {
   let sel = null, pin = '';
   const v = $('#view');
   v.innerHTML = `<div class="login">
-    <div class="logo">🪺</div><h1>The Stewart Nest</h1><div class="muted">Who's there?</div>
+    <img src="/logo.svg" alt="The Stewart Nest" style="width:220px;max-width:70vw"><div class="muted">Who's there?</div>
     <div class="who">${S.users.map((u) => `<button data-u="${u.id}"><span class="e">${u.emoji}</span>${esc(u.name)}</button>`).join('')}</div>
     <div id="pin-area" hidden>
       <div id="pin-msg" class="muted"></div>
