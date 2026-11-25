@@ -1,0 +1,86 @@
+// Shared helpers for the API
+
+export const json = (data, status = 200, headers = {}) =>
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...headers } });
+export const bad = (msg, status = 400) => json({ error: msg }, status);
+
+export const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+export const toD = (s) => new Date(s + 'T00:00:00Z');
+export const fromD = (d) => d.toISOString().slice(0, 10);
+export const addDays = (s, n) => { const d = toD(s); d.setUTCDate(d.getUTCDate() + n); return fromD(d); };
+export const dayDiff = (a, b) => Math.round((toD(b) - toD(a)) / 86400000); // b - a
+export const weekday = (s) => { const w = toD(s).getUTCDay(); return w === 0 ? 7 : w; }; // 1=Mon … 7=Sun
+export const mondayOf = (s) => addDays(s, 1 - weekday(s));
+export const saToday = () => new Date(Date.now() + 2 * 3600e3).toISOString().slice(0, 10); // SAST, no DST
+export const fmtShort = (s) => toD(s).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+export async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+export const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+export function getCookie(req, name) {
+  const c = req.headers.get('cookie') || '';
+  const m = c.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+  return m ? m[1] : null;
+}
+
+export async function body(req) {
+  try { return await req.json(); } catch { return {}; }
+}
+
+export async function notify(db, userIds, text, link = null) {
+  const stmts = [...new Set(userIds)].filter(Boolean).map((u) =>
+    db.prepare('INSERT INTO notifications (user_id, text, link) VALUES (?, ?, ?)').bind(u, text, link));
+  if (stmts.length) await db.batch(stmts);
+}
+
+export async function currentUser(req, db) {
+  const token = getCookie(req, 'nest_session');
+  if (!token) return null;
+  return db.prepare(`SELECT u.id, u.name, u.full_name, u.colour, u.emoji, u.is_parent FROM sessions s
+    JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > datetime('now')`).bind(token).first();
+}
+
+// Create today's (and the past week's) instances of repeating chores.
+// Rule: a chore is only added for a day if no earlier copy of it is still waiting —
+// i.e. not done yet, or only done on/after that day. So an undone chore carries over
+// (its "late" counter grows) instead of piling up duplicates, and the next fresh copy
+// appears the day after it is finally ticked.
+export async function ensureTemplateTasks(db, today) {
+  const { results: tpls } = await db.prepare('SELECT * FROM task_templates WHERE active = 1').all();
+  if (!tpls.length) return;
+  // Chores start counting from the first day the app was used (no backlog on day one)
+  let start = (await db.prepare("SELECT value FROM settings WHERE key = 'tasks_start'").first())?.value;
+  if (!start) { start = today; await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tasks_start', ?)").bind(today).run(); }
+  const from = addDays(today, -6);
+  const { results: inst } = await db.prepare(
+    'SELECT template_id, due_date, done_at FROM tasks WHERE template_id IS NOT NULL AND (due_date >= ? OR done_at IS NULL OR done_at >= ?)')
+    .bind(addDays(from, -30), from).all();
+  const byT = {};
+  for (const r of inst) (byT[r.template_id] = byT[r.template_id] || []).push({ due: r.due_date, done: r.done_at });
+  const stmts = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = addDays(today, -i);
+    if (d < start) continue;
+    const wd = String(weekday(d));
+    for (const t of tpls) {
+      if (!t.days.includes(wd)) continue;
+      const list = byT[t.id] || (byT[t.id] = []);
+      if (list.some((x) => x.due === d)) continue; // already there
+      if (list.some((x) => x.due < d && (!x.done || x.done >= d))) continue; // earlier one still carrying
+      stmts.push(db.prepare(`INSERT OR IGNORE INTO tasks (title, area, assignee, assigned_by, due_date, points, template_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(t.title, t.area, t.assignee, t.created_by, d, t.points, t.id));
+      list.push({ due: d, done: null });
+    }
+  }
+  for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+}
+
+export function decorateTask(t, today) {
+  const late = t.done_at ? dayDiff(t.due_date, t.done_at) : Math.max(0, dayDiff(t.due_date, today));
+  return { ...t, late_days: late, earned: t.done_at ? (late > 0 ? Math.floor(t.points / 2) : t.points) : 0 };
+}
+
+export const FAMILY = ['lee-roy', 'shirley', 'skyler'];

@@ -5,9 +5,11 @@
   "scripts": {
     "setup": "npm run db:reset",
     "dev": "wrangler dev --ip 0.0.0.0 --port 8787",
-    "db:reset": "wrangler d1 execute stewart-nest --local --yes --file=schema.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/family.sql",
-    "db:remote:reset": "wrangler d1 execute stewart-nest --remote --yes --file=schema.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/family.sql",
-    "deploy": "wrangler deploy"
+    "db:reset": "wrangler d1 execute stewart-nest --local --yes --file=schema.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/family.sql && wrangler d1 execute stewart-nest --local --yes --file=phase2.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/phase2.sql",
+    "db:remote:reset": "wrangler d1 execute stewart-nest --remote --yes --file=schema.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/family.sql && wrangler d1 execute stewart-nest --remote --yes --file=phase2.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/phase2.sql",
+    "deploy": "wrangler deploy",
+    "db:phase2": "wrangler d1 execute stewart-nest --local --yes --file=phase2.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/phase2.sql",
+    "db:remote:phase2": "wrangler d1 execute stewart-nest --remote --yes --file=phase2.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/phase2.sql"
   },
   "devDependencies": {
     "wrangler": "^4.168.0"

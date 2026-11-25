@@ -1,6 +1,9 @@
 // The Stewart Nest — API (Cloudflare Worker + D1)
 // Static files in /public are served by Workers Assets; everything under /api lands here.
 
+import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, sha256, randomHex, getCookie, body, notify, currentUser, ensureTemplateTasks, decorateTask } from './util.js';
+import { phase2 } from './phase2.js';
+
 const SESSION_DAYS = 60;
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
   'Yard', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
@@ -29,90 +32,6 @@ const ROTATION = {
 };
 const BREAKFASTS = { 1: 'b1', 2: 'b2', 3: 'b3', 4: 'b4', 5: 'b5', 6: 'b6', 7: 'b7' };
 const LUNCHES = { 1: 'l_tt', 2: 'l_em', 3: 'l_tt', 4: 'l_nd', 5: 'l_lo', 6: 'l_pj', 7: 'l_rc' };
-
-// ---------- helpers ----------
-const json = (data, status = 200, headers = {}) =>
-  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...headers } });
-const bad = (msg, status = 400) => json({ error: msg }, status);
-
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-const toD = (s) => new Date(s + 'T00:00:00Z');
-const fromD = (d) => d.toISOString().slice(0, 10);
-const addDays = (s, n) => { const d = toD(s); d.setUTCDate(d.getUTCDate() + n); return fromD(d); };
-const dayDiff = (a, b) => Math.round((toD(b) - toD(a)) / 86400000); // b - a
-const weekday = (s) => { const w = toD(s).getUTCDay(); return w === 0 ? 7 : w; }; // 1=Mon … 7=Sun
-const mondayOf = (s) => addDays(s, 1 - weekday(s));
-const saToday = () => new Date(Date.now() + 2 * 3600e3).toISOString().slice(0, 10); // SAST, no DST
-const fmtShort = (s) => toD(s).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-
-async function sha256(text) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
-
-function getCookie(req, name) {
-  const c = req.headers.get('cookie') || '';
-  const m = c.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
-  return m ? m[1] : null;
-}
-
-async function body(req) {
-  try { return await req.json(); } catch { return {}; }
-}
-
-async function notify(db, userIds, text, link = null) {
-  const stmts = [...new Set(userIds)].filter(Boolean).map((u) =>
-    db.prepare('INSERT INTO notifications (user_id, text, link) VALUES (?, ?, ?)').bind(u, text, link));
-  if (stmts.length) await db.batch(stmts);
-}
-
-async function currentUser(req, db) {
-  const token = getCookie(req, 'nest_session');
-  if (!token) return null;
-  return db.prepare(`SELECT u.id, u.name, u.full_name, u.colour, u.emoji, u.is_parent FROM sessions s
-    JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > datetime('now')`).bind(token).first();
-}
-
-// Create today's (and the past week's) instances of repeating chores.
-// Rule: a chore is only added for a day if no earlier copy of it is still waiting —
-// i.e. not done yet, or only done on/after that day. So an undone chore carries over
-// (its "late" counter grows) instead of piling up duplicates, and the next fresh copy
-// appears the day after it is finally ticked.
-async function ensureTemplateTasks(db, today) {
-  const { results: tpls } = await db.prepare('SELECT * FROM task_templates WHERE active = 1').all();
-  if (!tpls.length) return;
-  // Chores start counting from the first day the app was used (no backlog on day one)
-  let start = (await db.prepare("SELECT value FROM settings WHERE key = 'tasks_start'").first())?.value;
-  if (!start) { start = today; await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tasks_start', ?)").bind(today).run(); }
-  const from = addDays(today, -6);
-  const { results: inst } = await db.prepare(
-    'SELECT template_id, due_date, done_at FROM tasks WHERE template_id IS NOT NULL AND (due_date >= ? OR done_at IS NULL OR done_at >= ?)')
-    .bind(addDays(from, -30), from).all();
-  const byT = {};
-  for (const r of inst) (byT[r.template_id] = byT[r.template_id] || []).push({ due: r.due_date, done: r.done_at });
-  const stmts = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = addDays(today, -i);
-    if (d < start) continue;
-    const wd = String(weekday(d));
-    for (const t of tpls) {
-      if (!t.days.includes(wd)) continue;
-      const list = byT[t.id] || (byT[t.id] = []);
-      if (list.some((x) => x.due === d)) continue; // already there
-      if (list.some((x) => x.due < d && (!x.done || x.done >= d))) continue; // earlier one still carrying
-      stmts.push(db.prepare(`INSERT OR IGNORE INTO tasks (title, area, assignee, assigned_by, due_date, points, template_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(t.title, t.area, t.assignee, t.created_by, d, t.points, t.id));
-      list.push({ due: d, done: null });
-    }
-  }
-  for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
-}
-
-function decorateTask(t, today) {
-  const late = t.done_at ? dayDiff(t.due_date, t.done_at) : Math.max(0, dayDiff(t.due_date, today));
-  return { ...t, late_days: late, earned: t.done_at ? (late > 0 ? Math.floor(t.points / 2) : t.points) : 0 };
-}
 
 async function generateMonth(db, ym, season, overwrite) {
   const [y, m] = ym.split('-').map(Number);
@@ -234,7 +153,7 @@ async function api(req, env, url) {
     if (method === 'PUT') {
       if (!me.is_parent) return bad('Only Mom or Dad can change settings', 403);
       const b = await body(req);
-      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold'];
+      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget'];
       const stmts = Object.entries(b).filter(([k]) => allowed.includes(k)).map(([k, v]) =>
         db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(k, String(v)));
       if (stmts.length) await db.batch(stmts);
@@ -248,14 +167,16 @@ async function api(req, env, url) {
     const ym = q.get('ym');
     if (!/^\d{4}-\d{2}$/.test(ym || '')) return bad('ym=YYYY-MM needed');
     const from = `${ym}-01`, to = `${ym}-31`;
-    const [menu, plans, notes, tasks] = await db.batch([
+    const [menu, plans, notes, tasks, workouts] = await db.batch([
       db.prepare(`${MENU_SQL} WHERE m.date BETWEEN ? AND ? AND m.meal = 's' ORDER BY m.date`).bind(from, to),
       db.prepare('SELECT id, date, time, title, outdoor, rain_plan, use_rain FROM day_plans WHERE date BETWEEN ? AND ? ORDER BY date, time').bind(from, to),
       db.prepare('SELECT date, COUNT(*) AS n FROM notes WHERE date BETWEEN ? AND ? GROUP BY date').bind(from, to),
       db.prepare(`SELECT due_date AS date, SUM(done_at IS NULL) AS open, SUM(done_at IS NOT NULL) AS done
         FROM tasks WHERE assignee = ? AND due_date BETWEEN ? AND ? GROUP BY due_date`).bind(me.id, from, to),
+      db.prepare(`SELECT due_date AS date, COUNT(*) AS n, SUM(done_at IS NOT NULL) AS done
+        FROM tasks WHERE area = 'Workouts' AND due_date BETWEEN ? AND ? GROUP BY due_date`).bind(from, to),
     ]);
-    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results });
+    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results, workouts: workouts.results });
   }
 
   if (path === 'day' && method === 'GET') {
@@ -504,6 +425,9 @@ async function api(req, env, url) {
     await db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').bind(me.id).run();
     return json({ ok: true });
   }
+
+  const p2 = await phase2({ req, env, db, url, path, parts, method, q, me });
+  if (p2) return p2;
 
   return bad('Not found', 404);
 }

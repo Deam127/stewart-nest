@@ -13,6 +13,7 @@ const short = (s) => nice(s, { weekday: 'short', day: 'numeric', month: 'short' 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MEAL = { b: 'Breakfast', l: 'Lunch', s: 'Supper' };
 
+const ROUTES = {}; // phase2.js adds more screens here
 const S = { me: null, users: [], settings: {}, weather: {}, month: todayStr().slice(0, 7), lastNotif: 0, taskView: 'mine' };
 
 // ---------- API ----------
@@ -71,7 +72,8 @@ function renderHeader() {
     $('#baby').title = `${S.settings.baby_full_name || name} — due ${nice(due)}`;
   }
   const r = (location.hash.slice(1).split('/')[0]) || 'calendar';
-  $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === r || (r === 'day' && a.dataset.r === 'calendar')));
+  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub' };
+  $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === (navOf[r] || r)));
 }
 
 // ---------- notifications ----------
@@ -154,6 +156,7 @@ async function viewCalendar() {
   const menu = Object.fromEntries(data.menu.map((r) => [r.date, r]));
   const plans = by(data.plans), notes = Object.fromEntries(data.notes.map((r) => [r.date, r.n]));
   const tasks = Object.fromEntries(data.tasks.map((r) => [r.date, r]));
+  const wo = Object.fromEntries((data.workouts || []).map((r) => [r.date, r]));
   let cells = '';
   for (let i = 0; i < lead; i++) cells += '<div class="cell blank"></div>';
   for (let d = 1; d <= nDays; d++) {
@@ -171,6 +174,7 @@ async function viewCalendar() {
         ${(plans[date] || []).length ? `<span class="badge">📌${plans[date].length}</span>` : ''}
         ${notes[date] ? `<span class="badge">📝${notes[date]}</span>` : ''}
         ${t && t.open ? `<span class="badge ${date < today ? 'warn' : ''}">🧹${t.open}</span>` : ''}
+        ${wo[date] ? `<span class="badge ${wo[date].done >= wo[date].n ? 'ok' : ''}">💪${wo[date].done}/${wo[date].n}</span>` : ''}
       </div></div>`;
   }
   $('#view').innerHTML = `
@@ -184,7 +188,7 @@ async function viewCalendar() {
       ${ym !== today.slice(0, 7) ? '<button class="btn small ghost" id="this">This month</button>' : ''}
     </div>
     <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>
-    <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks</p>`;
+    <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned</p>`;
   $('#prev').onclick = () => { S.month = ymd(new Date(y, m - 2, 1)).slice(0, 7); viewCalendar(); };
   $('#next').onclick = () => { S.month = ymd(new Date(y, m, 1)).slice(0, 7); viewCalendar(); };
   $('#this') && ($('#this').onclick = () => { S.month = today.slice(0, 7); viewCalendar(); });
@@ -443,9 +447,11 @@ async function viewMore() {
         <select data-season="${r.id}" style="width:auto"><option value="all" ${r.season === 'all' ? 'selected' : ''}>All year</option><option value="summer" ${r.season === 'summer' ? 'selected' : ''}>Summer</option><option value="winter" ${r.season === 'winter' ? 'selected' : ''}>Winter</option></select></div>`).join('')}
     </div>
 
-    ${S.me.is_parent ? `<h2>👶 ${esc(S.settings.baby_name || 'Baby')}</h2>
+    ${S.me.is_parent ? `<h2>👶 ${esc(S.settings.baby_name || 'Baby')} & budgets</h2>
     <div class="card"><label class="f">Full name</label><input type="text" id="s-bfull" value="${esc(S.settings.baby_full_name || '')}">
       <label class="f">Due date</label><input type="date" id="s-due" value="${esc(S.settings.baby_due || '')}">
+      <div class="row"><div class="grow"><label class="f">Groceries & household budget (R)</label><input type="number" id="s-gb" value="${esc(S.settings.grocery_budget || 5000)}"></div>
+      <div class="grow"><label class="f">Meat budget (R)</label><input type="number" id="s-mb" value="${esc(S.settings.meat_budget || 2000)}"></div></div>
       <label class="f">Rain warning when chance of rain is at least (%)</label><input type="number" id="s-rain" value="${esc(S.settings.rain_threshold || 50)}" min="10" max="100">
       <button class="btn" style="margin-top:10px" id="s-save">Save</button></div>` : ''}
 
@@ -455,7 +461,7 @@ async function viewMore() {
       ${S.me.is_parent ? `<div class="muted" style="margin-top:8px">Forgotten PIN? Reset it, and that person picks a new one the next time they log in:</div>
       <div class="row wrap" style="margin-top:6px">${S.users.filter((u) => u.id !== S.me.id).map((u) => `<button class="btn small ghost" data-reset="${u.id}">Reset ${esc(u.name)}</button>`).join('')}</div>` : ''}
     </div>
-    <p class="muted">Coming in Phase 2: family chat, fun-time ideas, ${esc(S.settings.baby_name || 'baby')}'s going-out bag and monthly buy list, stock take, barcode and photo inventory, and workouts.</p>`;
+    `;
 
   $('#logout').onclick = async () => { await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
   $('#notif-on') && ($('#notif-on').onclick = async () => { await Notification.requestPermission(); viewMore(); });
@@ -469,7 +475,7 @@ async function viewMore() {
   $$('[data-rec]').forEach((c) => c.onchange = () => put('recipes/' + c.dataset.rec, { active: c.checked ? 1 : 0 }).then(() => toast('Saved')));
   $$('[data-season]').forEach((s) => s.onchange = () => put('recipes/' + s.dataset.season, { season: s.value }).then(() => toast('Saved')));
   $('#s-save') && ($('#s-save').onclick = async () => {
-    S.settings = await put('settings', { baby_full_name: $('#s-bfull').value, baby_due: $('#s-due').value, rain_threshold: $('#s-rain').value });
+    S.settings = await put('settings', { baby_full_name: $('#s-bfull').value, baby_due: $('#s-due').value, rain_threshold: $('#s-rain').value, grocery_budget: $('#s-gb').value, meat_budget: $('#s-mb').value });
     renderHeader(); toast('Saved');
   });
   $('#pin-go').onclick = async () => {
@@ -496,6 +502,7 @@ async function route() {
     if (r === 'tasks') return viewTasks(a, b);
     if (r === 'rewards') return viewRewards();
     if (r === 'more') return viewMore();
+    if (ROUTES[r]) return ROUTES[r](a, b);
     return viewCalendar();
   } catch (e) { toast(e.message); }
 }

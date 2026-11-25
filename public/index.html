@@ -27,11 +27,14 @@
   <nav id="nav" hidden>
     <a href="#calendar" data-r="calendar"><span>📅</span>Calendar</a>
     <a href="#today" data-r="today"><span>✅</span>My day</a>
-    <a href="#tasks" data-r="tasks"><span>🧹</span>Tasks</a>
-    <a href="#rewards" data-r="rewards"><span>🏆</span>Rewards</a>
-    <a href="#more" data-r="more"><span>⚙️</span>More</a>
+    <a href="#chat" data-r="chat"><span>💬</span>Chat<i id="chat-n" hidden></i></a>
+    <a href="#shop" data-r="shop"><span>🛒</span>Shop</a>
+    <a href="#hub" data-r="hub"><span>🪺</span>Family</a>
   </nav>
 
+  <div id="scanner" hidden><video playsinline muted></video><div class="scan-bar"><span>Point the camera at the barcode</span><button class="btn small ghost" id="scan-type">Type it</button><button class="btn small" id="scan-close">Cancel</button></div></div>
+
   <script src="/app.js"></script>
+  <script src="/phase2.js"></script>
 </body>
 </html>
