@@ -170,4 +170,15 @@ export const UPGRADES = {
     // big recipe library (+ new ingredient items with estimated prices)
     ...SEED_V6,
   ],
+  7: [
+    // the dogs: Niela & Luka
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('dogs', 'Niela & Luka')",
+    "UPDATE task_templates SET title = '🐕 Walk Niela & Luka' WHERE title = '🐕 Walk the dogs'",
+    "UPDATE tasks SET title = '🐕 Walk Niela & Luka' WHERE title = '🐕 Walk the dogs'",
+    "UPDATE task_templates SET title = '💪 Family walk with Niela & Luka' WHERE title = '💪 Family walk with the dogs'",
+    "UPDATE tasks SET title = '💪 Family walk with Niela & Luka' WHERE title = '💪 Family walk with the dogs'",
+    "UPDATE task_templates SET title = 'Pick up after Niela & Luka (dog poo)' WHERE title = 'Pick up dog poo'",
+    "UPDATE tasks SET title = 'Pick up after Niela & Luka (dog poo)' WHERE title = 'Pick up dog poo' AND done_at IS NULL",
+    "UPDATE items SET name = 'Bobtail dog food 8kg (Niela & Luka)' WHERE name = 'Bobtail dog food 8kg'",
+  ],
 };
