@@ -103,6 +103,20 @@ const v5 = [
   "DELETE FROM tasks WHERE title = 'Put the bins out (collection Wednesday)' AND done_at IS NULL",
 ];
 
+// Islamic holy days (estimates: the exact day follows the moon sighting announced by the UUCSA in South Africa, ±1 day)
+const MS = 'Estimated date, may shift a day with the moon sighting.';
+const ISLAMIC = [
+  ['2027-01-05', null, '☪️ Laylat al-Miraj (Night Journey)', MS],
+  ['2027-02-08', '2027-03-09', '🌙 Ramadan (month of fasting)', 'Fasting from dawn (Fajr) to sunset (Maghrib). Iftar is at sunset, so don\'t plan daytime meals with them; evening visits after iftar are often welcome. ' + MS, 'day_before'],
+  ['2027-03-05', null, '☪️ Laylat al-Qadr (Night of Power, likely)', 'One of the holiest nights, spent in prayer. ' + MS],
+  ['2027-03-10', null, '🎉 Eid al-Fitr', 'The big celebration at the end of Ramadan, their "Christmas". Send Eid Mubarak greetings! ' + MS, 'week'],
+  ['2027-05-16', null, '☪️ Day of Arafah', 'Many fast today. ' + MS],
+  ['2027-05-17', null, '🎉 Eid al-Adha', 'Festival of Sacrifice: family, prayers, sharing meat. Eid Mubarak! ' + MS, 'week'],
+  ['2027-06-06', null, '☪️ Islamic New Year (1449)', MS],
+  ['2027-06-15', null, '☪️ Day of Ashura', MS],
+  ['2027-08-15', null, '☪️ Mawlid an-Nabi (Prophet\'s birthday)', MS],
+];
+
 export const UPGRADES = {
   3: [
     'ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
@@ -180,5 +194,32 @@ export const UPGRADES = {
     "UPDATE task_templates SET title = 'Pick up after Niela & Luka (dog poo)' WHERE title = 'Pick up dog poo'",
     "UPDATE tasks SET title = 'Pick up after Niela & Luka (dog poo)' WHERE title = 'Pick up dog poo' AND done_at IS NULL",
     "UPDATE items SET name = 'Bobtail dog food 8kg (Niela & Luka)' WHERE name = 'Bobtail dog food 8kg'",
+  ],
+  8: [
+    // per-person permissions (JSON; NULL = defaults for their role) and what the children call each grown-up
+    'ALTER TABLE users ADD COLUMN permissions TEXT',
+    'ALTER TABLE users ADD COLUMN kid_name TEXT',
+    "UPDATE users SET kid_name = 'Dad' WHERE id = 'lee-roy'",
+    "UPDATE users SET kid_name = 'Mom' WHERE id = 'shirley'",
+    // Skyler: only his own tasks, ratings and photos to start with (Lee Roy can switch more on)
+    `UPDATE users SET permissions = '{}' WHERE id = 'skyler'`,
+    "UPDATE task_templates SET title = 'Help inside the house (ask your mom what''s needed)' WHERE title = 'Help inside the house (ask Mom what is needed)'",
+    "UPDATE tasks SET title = 'Help inside the house (ask your mom what''s needed)' WHERE title = 'Help inside the house (ask Mom what is needed)' AND done_at IS NULL",
+    // birthdays on profiles (MM-DD, or YYYY-MM-DD if the year is known) + a yearly calendar event linked to the person
+    'ALTER TABLE users ADD COLUMN birthday TEXT',
+    'ALTER TABLE events ADD COLUMN person TEXT',
+    "UPDATE users SET birthday = '05-22' WHERE id = 'lee-roy'",
+    "UPDATE users SET birthday = '05-30' WHERE id = 'skyler'",
+    "UPDATE users SET birthday = '05-31' WHERE id = 'shirley'",
+    ...[['lee-roy', 'Lee Roy', '05-22'], ['skyler', 'Skyler', '05-30'], ['shirley', 'Shirley', '05-31']].map(([id, n, d]) =>
+      `INSERT INTO events (title, category, who, start_date, repeat, remind, person, created_by)
+       SELECT '🎂 ${n}''s birthday', 'birthday', '', '2026-${d}', 'yearly', 'week', '${id}', 'lee-roy'
+       WHERE NOT EXISTS (SELECT 1 FROM events WHERE person = '${id}' AND category = 'birthday' AND active = 1)`),
+    // calendar layers that each person can switch on/off (first one: Islamic calendar for Lee Roy's sister's family)
+    'ALTER TABLE events ADD COLUMN layer TEXT',
+    'ALTER TABLE users ADD COLUMN prefs TEXT',
+    "INSERT OR IGNORE INTO settings (key, value) VALUES ('islam_family', 'Your sister''s family'), ('islam_method', '3'), ('islam_school', '1')",
+    ...ISLAMIC.map(([a, b, t, notes, remind]) => `INSERT INTO events (title, category, who, start_date, end_date, remind, notes, layer, created_by)
+       VALUES (${q(t)}, 'faith', '', '${a}', ${b ? `'${b}'` : 'NULL'}, '${remind || 'none'}', ${q(notes)}, 'islam', 'lee-roy')`),
   ],
 };

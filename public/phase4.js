@@ -1,9 +1,9 @@
 // The Stewart Nest — family schedule (events), recipe catalogue & rotation, and plan-ahead.
 'use strict';
 
-const CAT_ICON = { holiday: '🇿🇦', term: '🏫', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
-const CATS = { holiday: 'Public holiday', term: 'School term', school: 'School', school_holiday: 'School holiday', bins: 'Bin day', work: 'Work', birthday: 'Birthday', appointment: 'Appointment', family: 'Family', other: 'Other' };
-const REMIND = { none: 'No reminder', day_before: 'Day before (from 17:00)', morning: 'Morning of (from 06:00)', both: 'Day before and morning' };
+const CAT_ICON = { faith: '☪️', holiday: '🇿🇦', term: '🏫', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
+const CATS = { faith: 'Religious / faith', holiday: 'Public holiday', term: 'School term', school: 'School', school_holiday: 'School holiday', bins: 'Bin day', work: 'Work', birthday: 'Birthday', appointment: 'Appointment', family: 'Family', other: 'Other' };
+const REMIND = { none: 'No reminder', day_before: 'Day before (from 17:00)', morning: 'Morning of (from 06:00)', both: 'Day before and morning', week: 'A week before + day before + on the day' };
 const whoNames = (who) => who ? who.split(',').map((u) => user(u).emoji + ' ' + user(u).name).join(', ') : '🏡 Everyone';
 const evTitle = (e) => (/^\p{Extended_Pictographic}/u.test(e.title) ? '' : (CAT_ICON[e.category] || '📌') + ' ') + e.title;
 const repeatText = (e) => e.repeat === 'weekly' ? `Every ${[...(e.repeat_days || '')].map((d) => WD[d - 1]).join(', ')}` : e.repeat === 'monthly' ? 'Every month' : e.repeat === 'yearly' ? 'Every year' : '';
@@ -11,13 +11,13 @@ const repeatText = (e) => e.repeat === 'weekly' ? `Every ${[...(e.repeat_days ||
 // ================= events on a day =================
 (window.dayHooks = window.dayHooks || []).push(async function eventsHook(date, day) {
   const box = $('#day-events'); if (!box) return;
-  const evs = day.events || [];
+  const evs = (day.events || []).filter((e) => !e.layer || (S.me.prefs && S.me.prefs[e.layer]));
   const row = (e) => `<div class="ev ${e.quiet ? 'quiet' : ''}">
     <div class="tm">${e.start_time || (e.multi ? '' : 'All day')}${e.end_time ? `<div class="muted" style="font-weight:400">–${e.end_time}</div>` : ''}</div>
     <div class="grow"><div><strong>${esc(evTitle(e))}</strong></div>
       <div class="muted">${whoNames(e.who)}${e.repeat !== 'none' ? ' · 🔁 ' + repeatText(e) : ''}${e.remind !== 'none' ? ' · ⏰' : ''}</div>
       ${e.notes ? `<div class="muted">${esc(e.notes)}</div>` : ''}</div>
-    <div class="row">${e.repeat !== 'none' ? `<button class="btn small ghost" data-evskip="${e.id}" title="Not happening this day">Skip day</button>` : ''}
+    <div class="row" data-perm="edit_calendar">${e.repeat !== 'none' ? `<button class="btn small ghost" data-evskip="${e.id}" title="Not happening this day">Skip day</button>` : ''}
       ${!['holiday', 'term'].includes(e.category) || S.me.is_admin ? `<button class="btn small ghost" data-evedit="${e.id}">✏️</button>` : ''}</div>
   </div>`;
   const hol = evs.filter((e) => e.category === 'holiday');
@@ -27,7 +27,7 @@ const repeatText = (e) => e.repeat === 'weekly' ? `Every ${[...(e.repeat_days ||
     ${hol.map((e) => `<div class="badge warn" style="margin-bottom:6px">🇿🇦 ${esc(e.title)}: public holiday</div>`).join('')}
     ${term ? `<div class="badge ok" style="margin-bottom:6px">🏫 ${esc(term.title)}${weekdayOf(date) <= 5 && !hol.length ? ': school day' : ''}</div>` : (weekdayOf(date) <= 5 ? '<div class="badge rain" style="margin-bottom:6px">🏖️ No school (holidays)</div>' : '')}
     ${rest.map(row).join('') || '<div class="muted">Nothing scheduled.</div>'}
-    <div class="row wrap" style="margin-top:8px"><button class="btn small ghost" id="ev-add">+ Add event</button>
+    <div class="row wrap" style="margin-top:8px" data-perm="edit_calendar"><button class="btn small ghost" id="ev-add">+ Add event</button>
       <button class="btn small ghost" id="ev-school">🎒 School date for Skyler</button></div></div>`;
   $('#ev-add', box).onclick = () => eventSheet({ start_date: date }, () => viewDay(date));
   $('#ev-school', box).onclick = () => eventSheet(schoolPreset(date), () => viewDay(date));
@@ -99,7 +99,7 @@ ROUTES.events = async () => {
   const today = todayStr();
   const whoF = P4.evWho || '';
   const [up, all] = await Promise.all([api(`events?from=${today}&to=${addDays(today, 90)}${whoF ? '&who=' + whoF : ''}`), api('events/all')]);
-  const list = up.occurrences.filter((o) => !o.quiet && o.category !== 'term');
+  const list = up.occurrences.filter((o) => !o.quiet && o.category !== 'term' && (!o.layer || (S.me.prefs && S.me.prefs[o.layer])));
   const groups = groupBy(list.map((o) => ({ ...o, month: new Date(o.date + 'T00:00:00').toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }) })), 'month');
   const repeating = all.events.filter((e) => e.repeat !== 'none' || e.category === 'term');
   $('#view').innerHTML = `<h1>📅 Events & schedule</h1>

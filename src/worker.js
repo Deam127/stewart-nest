@@ -7,6 +7,8 @@ import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
 import { events as eventApi, occurrences } from './events.js';
 import { photos as photoApi } from './photos.js';
+import { requiredPerm } from './permissions.js';
+import { kidView } from './util.js';
 import { phase2 } from './phase2.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
@@ -56,7 +58,13 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
-      return await api(req, env, url);
+      const res = await api(req, env, url);
+      // children see "Mom" and "Dad" instead of first names
+      if (res.__kid && (res.headers.get('content-type') || '').includes('json')) {
+        const people = (await env.DB.prepare('SELECT id, name, is_parent, is_admin, kid_name FROM users').all()).results;
+        return new Response(JSON.stringify(kidView(await res.json(), people)), { status: res.status, headers: res.headers });
+      }
+      return res;
     } catch (e) {
       console.error(e);
       return bad('Something went wrong: ' + e.message, 500);
@@ -83,14 +91,21 @@ async function api(req, env, url) {
   if (path === 'me') return json({ ...me, areas: AREAS });
   const priv = await authPrivate({ req, db, path, parts, method, me });
   if (priv) return priv;
+  const res = await guarded(req, env, db, url, path, parts, method, q, me);
+  if (me.is_child) res.__kid = true;
+  return res;
+}
+
+async function guarded(req, env, db, url, path, parts, method, q, me) {
+  const need = requiredPerm(path, parts, method);
+  if (need && !me.perms[need]) return bad(me.is_child ? "That's not switched on for you. Ask your dad or mom." : 'Not allowed on your profile. Ask Lee Roy (admin) to switch it on.', 403);
   const others = await othersOf(db, me);
 
   // ----- settings -----
   if (path === 'settings') {
     if (method === 'PUT') {
-      if (!me.is_parent && !me.is_admin) return bad('Only Mom or Dad can change settings', 403);
       const b = await body(req);
-      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget'];
+      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget', 'islam_family', 'islam_method', 'islam_school'];
       const stmts = Object.entries(b).filter(([k]) => allowed.includes(k)).map(([k, v]) =>
         db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(k, String(v)));
       if (stmts.length) await db.batch(stmts);
@@ -207,7 +222,7 @@ async function api(req, env, url) {
   }
   if (parts[0] === 'notes' && parts[1] && method === 'DELETE') {
     const n = await db.prepare('SELECT user_id FROM notes WHERE id = ?').bind(parts[1]).first();
-    if (n && n.user_id !== me.id && !me.is_parent) return bad('You can only delete your own notes', 403);
+    if (n && n.user_id !== me.id && !me.perms.edit_calendar) return bad('You can only delete your own notes', 403);
     await db.prepare('DELETE FROM notes WHERE id = ?').bind(parts[1]).run();
     return json({ ok: true });
   }
@@ -249,6 +264,7 @@ async function api(req, env, url) {
   if (path === 'tasks' && method === 'POST') {
     const b = await body(req);
     if (!b.title?.trim() || !b.assignee || !AREAS.includes(b.area)) return bad('Title, area and person needed');
+    if ((b.assignee !== me.id || b.repeat_days) && !me.perms.assign_tasks) return bad(me.is_child ? 'You can add a one-off task for yourself. Ask your dad or mom for anything else.' : 'Not allowed on your profile', 403);
     const points = Math.max(1, Math.min(50, Number(b.points) || 5));
     const due = isDate(b.due_date) ? b.due_date : saToday();
     if (b.repeat_days && /^[1-7]+$/.test(b.repeat_days)) {
@@ -270,7 +286,7 @@ async function api(req, env, url) {
     const { done = true, date } = await body(req);
     const t = await db.prepare('SELECT * FROM tasks WHERE id = ?').bind(parts[1]).first();
     if (!t) return bad('Not found', 404);
-    if (t.assignee !== me.id && !me.is_parent) return bad('Only the person it is for (or Mom/Dad) can tick it', 403);
+    if (t.assignee !== me.id && !me.perms.assign_tasks) return bad('Only the person it is for (or Mom/Dad) can tick it', 403);
     const day = isDate(date) ? date : saToday();
     await db.prepare('UPDATE tasks SET done_at = ? WHERE id = ?').bind(done ? day : null, t.id).run();
     if (done && t.assigned_by && t.assigned_by !== me.id && !t.template_id)
@@ -288,7 +304,7 @@ async function api(req, env, url) {
   if (parts[0] === 'tasks' && parts[1] && !parts[2] && method === 'DELETE') {
     const t = await db.prepare('SELECT * FROM tasks WHERE id = ?').bind(parts[1]).first();
     if (!t) return json({ ok: true });
-    if (t.assigned_by !== me.id && !me.is_parent) return bad('Only whoever gave the task (or Mom/Dad) can remove it', 403);
+    if (!me.perms.assign_tasks && !(t.assigned_by === me.id && t.assignee === me.id)) return bad('Only whoever gave the task (or Mom/Dad) can remove it', 403);
     await db.prepare('DELETE FROM tasks WHERE id = ?').bind(t.id).run();
     return json({ ok: true });
   }
@@ -351,13 +367,11 @@ async function api(req, env, url) {
     return json({ week, end, users: out });
   }
   if (path === 'rewards/goal' && method === 'PUT') {
-    if (!me.is_parent) return bad('Only Mom or Dad can set rewards', 403);
     const { user_id, target, reward } = await body(req);
     await db.prepare('INSERT OR REPLACE INTO reward_goals (user_id, target, reward) VALUES (?, ?, ?)').bind(user_id, Number(target) || 0, reward || '').run();
     return json({ ok: true });
   }
   if (path === 'rewards/claim' && method === 'POST') {
-    if (!me.is_parent) return bad('Only Mom or Dad can hand out a reward', 403);
     const { user_id, week_start, points, reward } = await body(req);
     await db.prepare('INSERT OR REPLACE INTO rewards_log (user_id, week_start, points, reward, approved_by) VALUES (?, ?, ?, ?, ?)')
       .bind(user_id, week_start, points || 0, reward || '', me.id).run();

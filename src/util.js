@@ -31,8 +31,11 @@ export async function body(req) {
 }
 
 export async function notify(db, userIds, text, link = null) {
-  const stmts = [...new Set(userIds)].filter(Boolean).map((u) =>
-    db.prepare('INSERT INTO notifications (user_id, text, link) VALUES (?, ?, ?)').bind(u, text, link));
+  const { results: people } = await db.prepare('SELECT id, name, is_parent, is_admin, kid_name FROM users').all();
+  const stmts = [...new Set(userIds)].filter(Boolean).map((u) => {
+    const to = people.find((p) => p.id === u);
+    return db.prepare('INSERT INTO notifications (user_id, text, link) VALUES (?, ?, ?)').bind(u, to && !to.is_parent && !to.is_admin ? forKids(text, people) : text, link);
+  });
   if (stmts.length) await db.batch(stmts);
 }
 
@@ -90,6 +93,31 @@ export async function ensureTemplateTasks(db, today) {
 export function decorateTask(t, today) {
   const late = t.done_at ? dayDiff(t.due_date, t.done_at) : Math.max(0, dayDiff(t.due_date, today));
   return { ...t, late_days: late, earned: t.done_at ? (late > 0 ? Math.floor(t.points / 2) : t.points) : 0 };
+}
+
+// For a child: call the grown-ups by what the kids call them ("Dad", "Mom") instead of their first names
+export function forKids(text, people) {
+  let out = String(text);
+  for (const p of people) {
+    if (!p.kid_name || !(p.is_parent || p.is_admin)) continue;
+    out = out.replace(new RegExp(`\\b${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), p.kid_name);
+  }
+  return out;
+}
+const NAME_KEYS = new Set(['name', 'assignee_name', 'assigned_by_name', 'by_name', 'done_by_name']);
+// Rewrite names in an API response for a child viewer
+export function kidView(data, people) {
+  const map = Object.fromEntries(people.filter((p) => p.kid_name && (p.is_parent || p.is_admin)).map((p) => [p.name, p.kid_name]));
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      const o = {};
+      for (const [k, x] of Object.entries(v)) o[k] = NAME_KEYS.has(k) && typeof x === 'string' && map[x] ? map[x] : (['text', 'title', 'notes'].includes(k) && typeof x === 'string' ? forKids(x, people) : walk(x));
+      return o;
+    }
+    return v;
+  };
+  return walk(data);
 }
 
 // Everyone in the family who has an active profile (admin can add people later)

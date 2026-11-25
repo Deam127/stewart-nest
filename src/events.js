@@ -3,11 +3,12 @@
 import { json, bad, body, isDate, addDays, weekday, saToday, fmtShort, notify, familyIds, schoolContext } from './util.js';
 
 export const CATEGORIES = {
+  faith: '☪️ Faith / religious',
   holiday: '🇿🇦 Public holiday', term: '🏫 School term', school: '🎒 School', school_holiday: '🏖️ School holiday',
   bins: '🗑️ Bin day', work: '💼 Work', birthday: '🎂 Birthday', appointment: '🩺 Appointment', family: '🏡 Family', other: '📌 Other',
 };
 const FIELDS = ['title', 'category', 'who', 'start_date', 'end_date', 'start_time', 'end_time', 'repeat', 'repeat_days', 'repeat_until',
-  'school_days_only', 'skip_holidays', 'quiet', 'remind', 'notes'];
+  'school_days_only', 'skip_holidays', 'quiet', 'remind', 'notes', 'layer'];
 
 const context = schoolContext;
 
@@ -36,7 +37,7 @@ export async function occurrences(db, from, to, userId = null) {
       if (e.skip_holidays && ctx.holidays.has(d)) continue;
       out.push({
         id: e.id, date: d, title: e.title, category: e.category, who: e.who, start_time: e.start_time, end_time: e.end_time,
-        quiet: e.quiet, repeat: e.repeat, repeat_days: e.repeat_days, notes: e.notes, remind: e.remind, multi: !!e.end_date && e.repeat === 'none',
+        quiet: e.quiet, layer: e.layer || null, person: e.person, start_date: e.start_date, repeat: e.repeat, repeat_days: e.repeat_days, notes: e.notes, remind: e.remind, multi: !!e.end_date && e.repeat === 'none',
         first: d === e.start_date, last: d === (e.end_date || e.start_date),
       });
     }
@@ -49,20 +50,24 @@ export async function occurrences(db, from, to, userId = null) {
 export async function runReminders(db) {
   const now = new Date(Date.now() + 2 * 3600e3); // SAST
   const today = now.toISOString().slice(0, 10), hour = now.getUTCHours();
-  const tomorrow = addDays(today, 1);
-  const occ = (await occurrences(db, today, tomorrow)).filter((o) => o.remind !== 'none');
+  const tomorrow = addDays(today, 1), nextWeek = addDays(today, 7);
+  const occ = (await occurrences(db, today, nextWeek)).filter((o) => o.remind !== 'none');
   const family = await familyIds(db);
+  const prefs = Object.fromEntries((await db.prepare('SELECT id, prefs FROM users WHERE active = 1').all()).results.map((u) => { try { return [u.id, JSON.parse(u.prefs || '{}')]; } catch { return [u.id, {}]; } }));
   for (const o of occ) {
     const kinds = [];
-    if (o.date === tomorrow && hour >= 17 && ['day_before', 'both'].includes(o.remind)) kinds.push(['day_before', `⏰ Tomorrow (${fmtShort(o.date)}): ${o.title}`]);
-    if (o.date === today && hour >= 6 && ['morning', 'both'].includes(o.remind)) kinds.push(['morning', `⏰ Today${o.start_time ? ' at ' + o.start_time : ''}: ${o.title}`]);
+    if (o.date === tomorrow && hour >= 17 && ['day_before', 'both', 'week'].includes(o.remind)) kinds.push(['day_before', `⏰ Tomorrow (${fmtShort(o.date)}): ${o.title}`]);
+    if (o.date === nextWeek && hour >= 6 && o.remind === 'week') kinds.push(['week', `🎁 In a week (${fmtShort(o.date)}): ${o.title}. Time to sort out a gift?`]);
+    if (o.date === today && hour >= 6 && ['morning', 'both', 'week'].includes(o.remind)) kinds.push(['morning', `⏰ Today${o.start_time ? ' at ' + o.start_time : ''}: ${o.title}`]);
     for (const [kind, text] of kinds) {
       const r = await db.prepare('INSERT OR IGNORE INTO reminder_log (event_id, date, kind) VALUES (?, ?, ?)').bind(o.id, o.date, kind).run();
       if (!r.meta.changes) continue;
-      const to = o.who ? o.who.split(',').filter((u) => family.includes(u)) : family;
+      if (!to.length) continue;
+      let to = o.who ? o.who.split(',').filter((u) => family.includes(u)) : family;
+      if (o.layer) to = to.filter((u) => prefs[u]?.[o.layer]); // only people who switched that calendar on
       // a child's reminders also go to the grown-ups
       const grownUps = (await db.prepare('SELECT id FROM users WHERE active = 1 AND (is_parent = 1 OR is_admin = 1)').all()).results.map((u) => u.id);
-      const hasChild = to.some((u) => !grownUps.includes(u));
+      const hasChild = !o.layer && to.some((u) => !grownUps.includes(u));
       await notify(db, [...new Set([...to, ...(hasChild ? grownUps : [])])], text + (o.notes ? ` · ${o.notes}` : ''), `#day/${o.date}`);
     }
   }
@@ -119,6 +124,7 @@ function clean(b) {
     repeat, repeat_days: repeat === 'weekly' && /^[1-7]+$/.test(b.repeat_days || '') ? b.repeat_days : null,
     repeat_until: repeat !== 'none' && isDate(b.repeat_until) ? b.repeat_until : null,
     school_days_only: b.school_days_only ? 1 : 0, skip_holidays: b.skip_holidays ? 1 : 0, quiet: b.quiet ? 1 : 0,
-    remind: ['none', 'day_before', 'morning', 'both'].includes(b.remind) ? b.remind : 'none', notes: t(b.notes),
+    remind: ['none', 'day_before', 'morning', 'both', 'week'].includes(b.remind) ? b.remind : 'none', notes: t(b.notes),
+    layer: b.layer === 'islam' ? 'islam' : null,
   };
 }

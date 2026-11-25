@@ -91,14 +91,16 @@ ROUTES.hub = async () => {
       <a href="#tasks"><span class="i">🧹</span><strong>Tasks</strong><span class="muted">Give & track chores</span></a>
       <a href="#rewards"><span class="i">🏆</span><strong>Rewards</strong><span class="muted">This week's points</span></a>
       <a href="#workouts"><span class="i">💪</span><strong>Workouts</strong><span class="muted">Plans, logs & streaks</span></a>
-      <a href="#fun"><span class="i">🎉</span><strong>Family fun</strong><span class="muted">Ideas & votes</span></a>
-      <a href="#madilea"><span class="i">👶</span><strong>${esc(name)}</strong><span class="muted">Countdown, bags & buy list</span></a>
-      <a href="#shop/inventory"><span class="i">📦</span><strong>Inventory</strong><span class="muted">Codes, barcodes, photos</span></a>
+      <a href="#fun" data-perm="fun"><span class="i">🎉</span><strong>Family fun</strong><span class="muted">Ideas & votes</span></a>
+      <a href="#madilea" data-perm="baby_lists"><span class="i">👶</span><strong>${esc(name)}</strong><span class="muted">Countdown, bags & buy list</span></a>
+      <a href="#shop/inventory" data-perm="shopping"><span class="i">📦</span><strong>Inventory</strong><span class="muted">Codes, barcodes, photos</span></a>
       <a href="#gallery"><span class="i">📸</span><strong>Photos</strong><span class="muted">Supper pinboard, activities, memories</span></a>
-      <a href="#builder"><span class="i">🧑‍🍳</span><strong>Menu builder</strong><span class="muted">Pick next month's meals + budget</span></a>
-      <a href="#events"><span class="i">📅</span><strong>Events & schedule</strong><span class="muted">Holidays, school, bins, reminders</span></a>
-      <a href="#recipes"><span class="i">📖</span><strong>Recipes</strong><span class="muted">Catalogue, ingredients, rotation</span></a>
-      <a href="#plan"><span class="i">🗓️</span><strong>Plan ahead</strong><span class="muted">Months of menus → shopping</span></a>
+      <a href="#builder" data-perm="edit_menu"><span class="i">🧑‍🍳</span><strong>Menu builder</strong><span class="muted">Pick next month's meals + budget</span></a>
+      <a href="#faith"><span class="i">☪️</span><strong>Islamic calendar</strong><span class="muted">Holy days & prayer times, on/off</span></a>
+      <a href="#birthdays"><span class="i">🎂</span><strong>Birthdays</strong><span class="muted">Family, star signs, watch list</span></a>
+      <a href="#events" data-perm="edit_calendar"><span class="i">📅</span><strong>Events & schedule</strong><span class="muted">Holidays, school, bins, reminders</span></a>
+      <a href="#recipes" data-perm="edit_recipes"><span class="i">📖</span><strong>Recipes</strong><span class="muted">Catalogue, ingredients, rotation</span></a>
+      <a href="#plan" data-perm="edit_menu"><span class="i">🗓️</span><strong>Plan ahead</strong><span class="muted">Months of menus → shopping</span></a>
       <a href="#ratings"><span class="i">⭐</span><strong>Meal ratings</strong><span class="muted">Scores & export for Claude</span></a>
       <a href="#more"><span class="i">⚙️</span><strong>Settings</strong><span class="muted">Menu, password, budgets</span></a>
       ${S.me.is_admin ? '<a href="#users"><span class="i">👥</span><strong>Family profiles</strong><span class="muted">Admin: passwords & people</span></a>' : ''}
@@ -569,7 +571,7 @@ ROUTES.workouts = async () => {
       ${p.open.map((t) => `<div class="task ${t.late_days ? 'late' : ''}">
         <div class="grow"><div class="t">${esc(t.title)}</div>
           ${t.late_days ? `<span class="badge warn">From ${short(t.due_date)} · ${t.late_days} day${t.late_days > 1 ? 's' : ''} late</span>` : '<span class="badge">Today</span>'}</div>
-        ${(p.id === S.me.id || S.me.is_parent) ? `<button class="btn small" data-log="${t.id}" data-tpl="${t.template_id}">Log it</button>` : ''}
+        ${(p.id === S.me.id || S.me.is_parent || S.me.is_admin) ? `<button class="btn small" data-log="${t.id}" data-tpl="${t.template_id}">Log it</button>` : ''}
       </div>`).join('')}
     </div>`;
   }).join('');
@@ -580,8 +582,8 @@ ROUTES.workouts = async () => {
     ${d.plans.map((p) => `<div class="card"><div class="spread"><strong>${p.emoji} ${esc(p.title.replace(/^💪 /, ''))}</strong><span class="muted">${p.minutes || 20} min</span></div>
       <div class="muted">${esc(p.assignee_name)} · ${days(p.days)} · ${p.points} pts</div>
       ${p.howto ? `<p style="margin:6px 0 0">${esc(p.howto)}</p>` : ''}
-      ${(S.me.is_parent || p.assignee === S.me.id) ? `<button class="btn small danger" style="margin-top:6px" data-wstop="${p.id}">Stop this workout</button>` : ''}</div>`).join('') || '<div class="card empty">No workouts yet</div>'}
-    <details class="card"><summary><strong>+ New workout</strong></summary>
+      ${can('workouts_manage') ? `<button class="btn small danger" style="margin-top:6px" data-wstop="${p.id}">Stop this workout</button>` : ''}</div>`).join('') || '<div class="card empty">No workouts yet</div>'}
+    <details class="card" data-perm="workouts_manage"><summary><strong>+ New workout</strong></summary>
       <label class="f">Workout</label><input type="text" id="w-title" placeholder="e.g. 20-min walk">
       <div class="row"><div class="grow"><label class="f">For</label><select id="w-who">${S.users.map((u) => `<option value="${u.id}" ${u.id === S.me.id ? 'selected' : ''}>${u.emoji} ${esc(u.name)}</option>`).join('')}</select></div>
         <div style="width:90px"><label class="f">Minutes</label><input type="number" id="w-min" value="20"></div>

@@ -72,7 +72,7 @@ function renderHeader() {
     $('#baby').title = `${S.settings.baby_full_name || name} — due ${nice(due)}`;
   }
   const r = (location.hash.slice(1).split('/')[0]) || 'calendar';
-  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub', events: 'hub', recipes: 'hub', plan: 'hub', gallery: 'hub', builder: 'hub' };
+  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub', events: 'hub', recipes: 'hub', plan: 'hub', gallery: 'hub', builder: 'hub', birthdays: 'hub', faith: 'hub' };
   $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === (navOf[r] || r)));
 }
 
@@ -192,11 +192,12 @@ async function viewCalendar() {
   const plans = by(data.plans), notes = Object.fromEntries(data.notes.map((r) => [r.date, r.n]));
   const tasks = Object.fromEntries(data.tasks.map((r) => [r.date, r]));
   const wo = Object.fromEntries((data.workouts || []).map((r) => [r.date, r]));
-  const evs = by((data.events || []).filter((e) => !e.quiet));
+  const showEv = (e) => !e.layer || (S.me.prefs && S.me.prefs[e.layer]);
+  const evs = by((data.events || []).filter((e) => !e.quiet && showEv(e)));
   const pics = {}; (data.photos || []).forEach((p) => { if (!pics[p.date]) pics[p.date] = p; });
   const hol = Object.fromEntries((data.events || []).filter((e) => e.category === 'holiday').map((e) => [e.date, e.title]));
   const school = new Set((data.events || []).filter((e) => e.category === 'term').map((e) => e.date));
-  const EV_ICON = { holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
+  const EV_ICON = { faith: '☪️', holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
   let cells = '';
   for (let i = 0; i < lead; i++) cells += '<div class="cell blank"></div>';
   for (let d = 1; d <= nDays; d++) {
@@ -230,12 +231,14 @@ async function viewCalendar() {
     <div class="row wrap" style="margin-bottom:8px">
       <span class="muted grow">Hi ${esc(S.me.name)}. Tap a day for meals, plans, notes and tasks.</span>
       ${ym !== today.slice(0, 7) ? '<button class="btn small ghost" id="this">This month</button>' : ''}
+      <button class="btn small ${S.me.prefs && S.me.prefs.islam ? '' : 'ghost'}" id="lay-islam" title="Islamic calendar">☪️ ${S.me.prefs && S.me.prefs.islam ? 'On' : 'Off'}</button>
     </div>
     <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>
     <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned · 🇿🇦 public holiday · 🎒 school · 🗑️ bin day · <span style="border-bottom:3px solid #8bb5a5">school day</span></p>`;
   $('#prev').onclick = () => { S.month = ymd(new Date(y, m - 2, 1)).slice(0, 7); viewCalendar(); };
   $('#next').onclick = () => { S.month = ymd(new Date(y, m, 1)).slice(0, 7); viewCalendar(); };
   $('#this') && ($('#this').onclick = () => { S.month = today.slice(0, 7); viewCalendar(); });
+  $('#lay-islam').onclick = async () => { await window.toggleLayer('islam', !(S.me.prefs && S.me.prefs.islam)); viewCalendar(); };
   $$('.cell[data-d]').forEach((c) => c.onclick = () => (location.hash = '#day/' + c.dataset.d));
 }
 
@@ -255,7 +258,7 @@ async function viewDay(date) {
     const m = d.menu.find((x) => x.meal === k);
     const opts = recipes.filter((r) => r.meal === k && r.active && !r.name.startsWith('Rain plan:'))
       .map((r) => `<option value="${r.id}" ${m && m.recipe_id === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
-    if (!m) return `<div class="card meal-card"><div class="lbl">${MEAL[k]}</div><select data-meal="${k}"><option value="">Choose…</option>${opts}</select></div>`;
+    if (!m) return `<div class="card meal-card"><div class="lbl">${MEAL[k]}</div><select data-perm="edit_menu" data-meal="${k}"><option value="">Choose…</option>${opts}</select></div>`;
     const showBackup = m.use_backup && m.backup_name;
     const rainWarn = m.outdoor && !m.use_backup && rainLikely(date);
     return `<div class="card meal-card">
@@ -264,7 +267,7 @@ async function viewDay(date) {
       ${showBackup ? `<div class="muted">Instead of: ${esc(m.name)}</div>` : ''}
       ${rainWarn ? `<div class="rain-box">☔ ${wx.rain}% chance of rain. The rain plan is <strong>${esc(m.backup_name)}</strong>.</div>` : ''}
       <details><summary>Portions & method</summary>${portions(showBackup ? m.backup_portions : m.portions)}<p>${esc(showBackup ? m.backup_method : m.method)}</p></details>
-      <div class="row wrap" style="margin-top:8px">
+      <div class="row wrap" style="margin-top:8px" data-perm="edit_menu">
         <select data-meal="${k}" class="grow" style="max-width:70%">${opts}</select>
         ${m.rain_backup ? `<button class="btn small ${m.use_backup ? 'ghost' : 'rain'}" data-backup="${m.use_backup ? 0 : 1}">${m.use_backup ? 'Back to braai' : '☔ Use rain plan'}</button>` : ''}
       </div></div>`;
@@ -272,12 +275,12 @@ async function viewDay(date) {
 
   const plans = d.plans.map((p) => `<div class="card">
       <div class="spread"><strong>${p.time ? esc(p.time) + ' · ' : ''}${esc(p.use_rain && p.rain_plan ? p.rain_plan : p.title)}</strong>
-        <button class="btn small danger" data-delplan="${p.id}">✕</button></div>
+        <button class="btn small danger" data-perm="edit_calendar" data-delplan="${p.id}">✕</button></div>
       ${p.use_rain ? `<div class="muted">☔ Rain plan instead of: ${esc(p.title)}</div>` : ''}
       ${p.outdoor && p.rain_plan && !p.use_rain ? `<div class="rain-box">Rain plan: ${esc(p.rain_plan)}${rainLikely(date) ? ` (${wx.rain}% chance of rain)` : ''}</div>` : ''}
       ${p.outdoor && !p.rain_plan ? '<div class="muted">⚠️ Outdoor, with no rain plan yet</div>' : ''}
       <div class="row" style="margin-top:6px"><span class="muted grow">Added by ${esc(p.by_name || '')}</span>
-      ${p.outdoor && p.rain_plan ? `<button class="btn small ${p.use_rain ? 'ghost' : 'rain'}" data-rainplan="${p.id}" data-v="${p.use_rain ? 0 : 1}">${p.use_rain ? 'Back to original' : '☔ Switch to rain plan'}</button>` : ''}</div>
+      ${p.outdoor && p.rain_plan ? `<button data-perm="edit_calendar" class="btn small ${p.use_rain ? 'ghost' : 'rain'}" data-rainplan="${p.id}" data-v="${p.use_rain ? 0 : 1}">${p.use_rain ? 'Back to original' : '☔ Switch to rain plan'}</button>` : ''}</div>
     </div>`).join('') || '<div class="muted">No plans yet.</div>';
 
   const notes = d.notes.map((n) => `<div class="note" style="border-color:${n.colour}">
@@ -298,7 +301,7 @@ async function viewDay(date) {
     <h2>🍽️ Meals</h2>${meals}
     <div id="day-rate"></div>
     <h2>📌 Plans</h2>${plans}
-    <details class="card"><summary><strong>+ Add a plan</strong></summary>
+    <details class="card" data-perm="edit_calendar"><summary><strong>+ Add a plan</strong></summary>
       <label class="f">What</label><input type="text" id="p-title" placeholder="e.g. Braai with the Steyns">
       <label class="f">Time (optional)</label><input type="time" id="p-time">
       <label class="row" style="margin-top:8px"><input type="checkbox" id="p-out"> Outdoor (needs a dry day)</label>
@@ -306,10 +309,10 @@ async function viewDay(date) {
       <button class="btn" style="margin-top:10px" id="p-add">Add plan</button>
     </details>
     <h2>📝 Notes</h2>${notes}
-    <div class="card"><textarea id="n-text" placeholder="Add a note for this day…"></textarea>
+    <div class="card" data-perm="edit_calendar"><textarea id="n-text" placeholder="Add a note for this day…"></textarea>
       <button class="btn" style="margin-top:8px" id="n-add">Add note</button></div>
     <h2>🧹 Tasks</h2><div class="card">${tasks}</div>${upcoming}
-    <button class="btn ghost" onclick="location.hash='#tasks/new/${date}'">+ Give someone a task for this day</button>`;
+    <button class="btn ghost" data-perm="assign_tasks" onclick="location.hash='#tasks/new/${date}'">+ Give someone a task for this day</button>`;
 
   $('#dprev').onclick = () => (location.hash = '#day/' + addDays(date, -1));
   $('#dnext').onclick = () => (location.hash = '#day/' + addDays(date, 1));
@@ -335,7 +338,7 @@ async function viewDay(date) {
 function taskRow(t) {
   const late = !t.done_at && t.late_days > 0;
   const lateDone = t.done_at && t.late_days > 0;
-  const mineOrParent = t.assignee === S.me.id || S.me.is_parent;
+  const mineOrParent = t.assignee === S.me.id || can('assign_tasks');
   return `<div class="task ${t.done_at ? 'done' : ''} ${late ? 'late' : ''}">
     <button class="tick" data-tick="${t.id}" data-done="${t.done_at ? 0 : 1}" ${mineOrParent ? '' : 'disabled title="Only ' + esc(t.assignee_name) + ' can tick this"'}>${t.done_at ? '✓' : ''}</button>
     <div class="grow">
@@ -347,7 +350,7 @@ function taskRow(t) {
       ${lateDone ? `<span class="badge warn">Done ${t.late_days} day${t.late_days > 1 ? 's' : ''} late, half points</span>` : ''}
       ${t.done_at && !lateDone ? `<span class="badge ok">On time +${t.earned}</span>` : ''}
     </div>
-    ${(!t.template_id && (t.assigned_by === S.me.id || S.me.is_parent)) ? `<button class="btn small danger" data-deltask="${t.id}" title="Remove">✕</button>` : ''}
+    ${(!t.template_id && (can('assign_tasks') || (t.assigned_by === S.me.id && t.assignee === S.me.id))) ? `<button class="btn small danger" data-deltask="${t.id}" title="Remove">✕</button>` : ''}
   </div>`;
 }
 function wireTasks(refresh, date) {
@@ -385,7 +388,7 @@ async function viewToday() {
     ${carried.length ? `<h2>⏳ Carried over</h2><div class="card">${carried.map(taskRow).join('')}</div>` : ''}
     <h2>Today</h2><div class="card">${fresh.length ? fresh.map(taskRow).join('') : `<div class="empty">${open.length ? 'Only carried-over tasks left 👆' : 'All done for today! 🎉'}</div>`}</div>
     ${done.length ? `<h2>Done today</h2><div class="card">${done.map(taskRow).join('')}</div>` : ''}
-    <button class="btn ghost" onclick="location.hash='#tasks/new'">+ Give someone a task</button>`;
+    <button class="btn ghost" data-perm="assign_tasks" onclick="location.hash='#tasks/new'">+ Give someone a task</button>`;
   $$('.seg button').forEach((b) => b.onclick = () => { S.taskView = b.dataset.v; viewToday(); });
   wireTasks(viewToday);
 }
@@ -399,7 +402,7 @@ async function viewTasks(sub, presetDate) {
   const dayBoxes = WD.map((w, i) => `<label><input type="checkbox" value="${i + 1}"><span>${w}</span></label>`).join('');
   $('#view').innerHTML = `
     <h1>Tasks</h1>
-    <details class="card" id="new-box" ${sub === 'new' ? 'open' : ''}><summary><strong>+ Give someone a task</strong></summary>
+    <details class="card" id="new-box" data-perm="assign_tasks" ${sub === 'new' ? 'open' : ''}><summary><strong>+ Give someone a task</strong></summary>
       <label class="f">Task</label><input type="text" id="t-title" placeholder="e.g. Pack away the washing">
       <div class="row">
         <div class="grow"><label class="f">For</label><select id="t-who">${S.users.map((u) => `<option value="${u.id}" ${u.id === S.me.id ? '' : ''}>${u.emoji} ${esc(u.name)}</option>`).join('')}</select></div>
@@ -423,7 +426,7 @@ async function viewTasks(sub, presetDate) {
     <h2>🔁 Repeating chores</h2>
     <div class="card">${tpls.map((x) => `<div class="recipe-row"><span>${x.emoji} <strong>${esc(x.title)}</strong><br>
       <span class="muted">${esc(x.area)} · ${x.days === '1234567' ? 'every day' : [...x.days].map((d) => WD[d - 1]).join(', ')}${x.when_school === 'school' ? ' · school days only' : x.when_school === 'no_school' ? ' · no-school days only' : ''}${x.routine === 'morning' ? ' · ☀️ morning check' : ''} · ${x.points} pts</span></span>
-      ${S.me.is_parent || x.created_by === S.me.id ? `<button class="btn small danger" data-deltpl="${x.id}">Stop</button>` : ''}</div>`).join('') || '<div class="empty">None</div>'}</div>`;
+      ${can('assign_tasks') ? `<button class="btn small danger" data-deltpl="${x.id}">Stop</button>` : ''}</div>`).join('') || '<div class="empty">None</div>'}</div>`;
   if (sub === 'new') setTimeout(() => $('#t-title').focus(), 50);
   $('#t-add').onclick = async () => {
     const title = $('#t-title').value.trim(); if (!title) return toast('What is the task?');
@@ -453,9 +456,9 @@ async function viewRewards(weekArg) {
         <span class="badge ${u.open ? 'warn' : ''}">📋 ${u.open} still open</span><span class="badge">${rate}% done</span>
       </div>
       ${u.claimed ? `<div style="margin-top:8px" class="badge ok">🏆 Reward given by ${esc(user(u.claimed.approved_by).name)}</div>`
-        : reached && S.me.is_parent ? `<button class="btn" style="margin-top:8px" data-claim="${u.id}" data-pts="${u.points}" data-rw="${esc(u.reward)}">🏆 Hand out reward</button>`
+        : reached && can('approve_rewards') ? `<button class="btn" style="margin-top:8px" data-claim="${u.id}" data-pts="${u.points}" data-rw="${esc(u.reward)}">🏆 Hand out reward</button>`
         : reached ? '<div style="margin-top:8px" class="badge ok">🎉 Target reached! Ask Mom or Dad.</div>' : ''}
-      ${S.me.is_parent ? `<details style="margin-top:8px"><summary class="muted">Change goal</summary>
+      ${can('approve_rewards') ? `<details style="margin-top:8px"><summary class="muted">Change goal</summary>
         <div class="row" style="margin-top:6px"><input type="number" style="width:90px" value="${u.target || 0}" data-gt="${u.id}">
         <input type="text" class="grow" value="${esc(u.reward || '')}" data-gr="${u.id}"><button class="btn small" data-gs="${u.id}">Save</button></div></details>` : ''}
     </div>`;
@@ -494,7 +497,7 @@ async function viewMore() {
       ${'Notification' in window && Notification.permission === 'default' ? '<button class="btn small" id="notif-on">Turn on</button>' : ''}</div>
       <div class="muted">The 🔔 at the top always shows new tasks, rain changes, notes and rewards.</div></div>
 
-    <h2>🍽️ Menu</h2>
+    <div data-perm="edit_menu"><h2>🍽️ Menu</h2>
     <div class="card">
       <div class="row wrap">
         <input type="month" id="g-month" value="${S.month}" style="width:auto">
@@ -508,7 +511,8 @@ async function viewMore() {
         <select data-season="${r.id}" style="width:auto"><option value="all" ${r.season === 'all' ? 'selected' : ''}>All year</option><option value="summer" ${r.season === 'summer' ? 'selected' : ''}>Summer</option><option value="winter" ${r.season === 'winter' ? 'selected' : ''}>Winter</option></select></div>`).join('')}
     </div>
 
-    ${S.me.is_parent ? `<h2>👶 ${esc(S.settings.baby_name || 'Baby')} & budgets</h2>
+    </div>
+    ${can('settings') ? `<h2>👶 ${esc(S.settings.baby_name || 'Baby')} & budgets</h2>
     <div class="card"><label class="f">Full name</label><input type="text" id="s-bfull" value="${esc(S.settings.baby_full_name || '')}">
       <label class="f">Due date</label><input type="date" id="s-due" value="${esc(S.settings.baby_due || '')}">
       <div class="row"><div class="grow"><label class="f">Groceries & household budget (R)</label><input type="number" id="s-gb" value="${esc(S.settings.grocery_budget || 5000)}"></div>
@@ -520,7 +524,7 @@ async function viewMore() {
     <div class="card"><input type="password" id="pw-old" autocomplete="current-password" placeholder="Current password">
       <input type="password" id="pw-new" autocomplete="new-password" placeholder="New password (6+ characters)" style="margin-top:8px">
       <button class="btn small" style="margin-top:8px" id="pw-change">Change password</button>
-      ${S.me.is_admin ? '<div class="muted" style="margin-top:8px">Someone forgot theirs? Go to <a href="#users">👥 Family profiles</a> to give them a temporary password.</div>' : '<div class="muted" style="margin-top:8px">Forgot it? Ask Lee Roy for a temporary one.</div>'}
+      ${S.me.is_admin ? '<div class="muted" style="margin-top:8px">Someone forgot theirs? Go to <a href="#users">👥 Family profiles</a> to give them a temporary password.</div>' : (S.me.is_child ? '<div class="muted" style="margin-top:8px">Forgot it? Ask your dad for a temporary one.</div>' : '<div class="muted" style="margin-top:8px">Forgot it? Ask Lee Roy for a temporary one.</div>')}
     </div>
     `;
 
@@ -545,10 +549,20 @@ async function viewMore() {
   };
 }
 
+// ---------- permissions & how children see names ----------
+const can = (k) => !!(S.me && S.me.perms && S.me.perms[k]);
+function applyPerms() {
+  const all = ['chat', 'assign_tasks', 'edit_menu', 'edit_recipes', 'edit_calendar', 'shopping', 'fun', 'baby_lists', 'workouts_manage', 'approve_rewards', 'settings'];
+  all.forEach((k) => document.body.classList.toggle('no-' + k, !can(k)));
+  // children see "Mom" and "Dad"
+  if (S.me.is_child) S.users = S.users.map((u) => (u.kid_name && (u.is_parent || u.is_admin) ? { ...u, name: u.kid_name } : u));
+}
+
 // ---------- routing ----------
 async function route() {
   const [r, a, b] = location.hash.slice(1).split('/');
   $('#notif-panel').hidden = true;
+  $$('.sheet, .lightbox').forEach((el) => el.remove()); // close any pop-up when changing page
   if (!S.me && r !== 'login') { location.hash = '#login'; return; }
   if (S.me && S.me.must_change) return viewMustChange();
   renderHeader();
@@ -572,6 +586,7 @@ async function boot() {
       S.me = await me.json();
       if (S.me.must_change) return viewMustChange();
       [S.users, S.settings] = await Promise.all([api('users'), api('settings')]);
+      applyPerms();
       pollNotifications();
       if (location.hash === '#login' || !location.hash) { location.hash = '#calendar'; return; } // hashchange will route
     }

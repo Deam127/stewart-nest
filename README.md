@@ -28,7 +28,19 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
   - a reward goal per person, and Mom or Dad hands the reward out
 - **Madilea countdown** in the header.
 
-**Photos, recipe library & menu builder (latest):**
+**Permissions, birthdays & faith calendar (latest):**
+- **Per-person permissions:** chat, giving tasks, menus, recipes, calendar, shopping, fun, Madilea's lists, workouts, rewards, settings.
+  - Set them in 👥 Family profiles → ✏️ Edit.
+  - Everyone can always see the calendar, do their own tasks, rate meals and upload photos.
+  - Skyler starts with just that. Rules are enforced by the server, not just hidden.
+- **Mom & Dad:** children see the grown-ups by what they call them ("Dad", "Mom") in tasks, notifications, events and chat.
+- **🎂 Birthdays:** set on each profile, with star signs, a countdown and a reminder a week before. There's also a watch list for extended family and friends.
+- **☪️ Islamic calendar** (each person switches it on or off):
+  - Ramadan, the Eids and other holy days (estimated dates for 2027)
+  - daily prayer times from aladhan.com, including Jumu'ah and iftar times in Ramadan
+  - reminders only go to people who switch it on
+
+**Photos, recipe library & menu builder:**
 - **📸 Photos:**
   - supper photos (a polaroid-style "supper pinboard"), activity photos and memories, each pinned to a calendar day
   - a small thumbnail appears on the calendar; tap to enlarge, swipe through, caption, or delete

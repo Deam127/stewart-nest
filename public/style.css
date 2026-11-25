@@ -253,3 +253,17 @@ body.has-bg h1, body.has-bg h2, body.has-bg h3 { text-shadow: 0 0 6px rgba(255,2
 .bday.wkend { border-left: 4px solid #e2a721; }
 .bmrow { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .bmrow select { padding: 6px 8px; font-size: .85rem; }
+
+/* ---------- permissions: hide what a person isn't allowed to use ---------- */
+.no-chat [data-perm=chat], .no-assign_tasks [data-perm=assign_tasks], .no-edit_menu [data-perm=edit_menu],
+.no-edit_recipes [data-perm=edit_recipes], .no-edit_calendar [data-perm=edit_calendar], .no-shopping [data-perm=shopping],
+.no-fun [data-perm=fun], .no-baby_lists [data-perm=baby_lists], .no-workouts_manage [data-perm=workouts_manage],
+.no-approve_rewards [data-perm=approve_rewards], .no-settings [data-perm=settings] { display: none !important; }
+.perm-list label { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: .9rem; }
+.perm-list input { margin-top: 3px; }
+.bd { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.bd:last-child { border-bottom: 0; }
+.bd .sign { font-size: 1.6rem; width: 36px; text-align: center; }
+.prayer { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; text-align: center; font-size: .8rem; }
+.prayer div { background: #eef3f8; border-radius: 8px; padding: 4px 2px; }
+.prayer b { display: block; font-size: .9rem; }
