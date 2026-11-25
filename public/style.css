@@ -42,7 +42,7 @@ h3 { font-size: .95rem; margin: 12px 0 6px; color: var(--muted); text-transform:
 .btn.rain { background: var(--rain); }
 .btn.danger { background: #fbe3e0; color: #a33; }
 .btn:disabled { opacity: .5; }
-input[type=text], input[type=date], input[type=time], input[type=number], select, textarea {
+input[type=text], input[type=password], input[type=date], input[type=time], input[type=number], select, textarea {
   width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff;
 }
 textarea { min-height: 64px; resize: vertical; }
@@ -199,3 +199,10 @@ nav#nav a { position: relative; }
 #scanner .scan-bar span { flex: 1; font-size: .9rem; }
 .feel button { font-size: 1.4rem; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; cursor: pointer; }
 .feel button.on { border-color: var(--brand); background: var(--brand-2); }
+
+/* ---------- Phase 3 ---------- */
+.stars { display: flex; gap: 4px; }
+.star { background: none; border: 0; font-size: 1.9rem; color: #d9d2c5; cursor: pointer; padding: 0 2px; line-height: 1; }
+.star.on { color: #e2a721; }
+.login form { text-align: left; }
+.login h1 { font-size: 1.2rem; }

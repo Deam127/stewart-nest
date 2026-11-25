@@ -1,6 +1,7 @@
 -- The Stewart Nest — database schema (Cloudflare D1 / SQLite)
 -- Safe to re-run: drops and recreates everything. Use `npm run db:reset`.
 
+DROP TABLE IF EXISTS meal_ratings;
 DROP TABLE IF EXISTS workout_logs;
 DROP TABLE IF EXISTS workout_info;
 DROP TABLE IF EXISTS shop_lines;

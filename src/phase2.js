@@ -1,13 +1,13 @@
 // The Stewart Nest — Phase 2 API: chat, fun ideas, Madilea's lists, inventory & photos,
 // stock take → shopping list → trolley, workouts.
 import { json, bad, isDate, addDays, mondayOf, saToday, fmtShort, body, notify, randomHex,
-  ensureTemplateTasks, decorateTask, FAMILY } from './util.js';
+  ensureTemplateTasks, decorateTask, familyIds } from './util.js';
 
-const others = (me) => FAMILY.filter((u) => u !== me.id);
 const num = (v, d = null) => (v === '' || v == null || isNaN(Number(v)) ? d : Number(v));
 const ITEM_FIELDS = ['barcode', 'name', 'brand', 'size', 'section', 'kind', 'price', 'shop', 'photo_key', 'par', 'on_hand', 'essential', 'active'];
 
-export async function phase2({ req, env, db, url, path, parts, method, q, me }) {
+export async function phase2({ req, env, db, url, path, parts, method, q, me, others: otherIds }) {
+  const others = () => otherIds;
   // ================= photos (R2) =================
   if (path === 'photos' && method === 'POST') {
     if (!env.PHOTOS) return bad('Photo storage is not set up', 500);
@@ -325,7 +325,7 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me }) 
         JOIN workout_logs l ON l.task_id = t.id JOIN users u ON u.id = t.assignee ORDER BY t.done_at DESC, t.id DESC LIMIT 15`),
     ]);
     const all = tasks.results.map((t) => decorateTask(t, today));
-    const people = FAMILY.map((id) => {
+    const people = (await familyIds(db)).map((id) => {
       const mine = all.filter((t) => t.assignee === id);
       const thisWeek = mine.filter((t) => t.due_date >= week && t.due_date <= today);
       // streak: consecutive weeks (ending last week) where every planned workout was done
@@ -348,7 +348,7 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me }) 
   }
   if (path === 'workouts' && method === 'POST') {
     const b = await body(req);
-    if (!b.title?.trim() || !FAMILY.includes(b.assignee) || !/^[1-7]+$/.test(b.days || '')) return bad('Title, person and days needed');
+    if (!b.title?.trim() || !(await familyIds(db)).includes(b.assignee) || !/^[1-7]+$/.test(b.days || '')) return bad('Title, person and days needed');
     const title = b.title.trim().startsWith('💪') ? b.title.trim() : '💪 ' + b.title.trim();
     const r = await db.prepare("INSERT INTO task_templates (title, area, assignee, days, points, created_by) VALUES (?, 'Workouts', ?, ?, ?, ?)")
       .bind(title, b.assignee, b.days, num(b.points, 10), me.id).run();

@@ -36,12 +36,6 @@ export async function notify(db, userIds, text, link = null) {
   if (stmts.length) await db.batch(stmts);
 }
 
-export async function currentUser(req, db) {
-  const token = getCookie(req, 'nest_session');
-  if (!token) return null;
-  return db.prepare(`SELECT u.id, u.name, u.full_name, u.colour, u.emoji, u.is_parent FROM sessions s
-    JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > datetime('now')`).bind(token).first();
-}
 
 // Create today's (and the past week's) instances of repeating chores.
 // Rule: a chore is only added for a day if no earlier copy of it is still waiting —
@@ -83,4 +77,9 @@ export function decorateTask(t, today) {
   return { ...t, late_days: late, earned: t.done_at ? (late > 0 ? Math.floor(t.points / 2) : t.points) : 0 };
 }
 
-export const FAMILY = ['lee-roy', 'shirley', 'skyler'];
+// Everyone in the family who has an active profile (admin can add people later)
+export async function familyIds(db) {
+  const { results } = await db.prepare('SELECT id FROM users WHERE active = 1').all();
+  return results.map((r) => r.id);
+}
+export async function othersOf(db, me) { return (await familyIds(db)).filter((u) => u !== me.id); }

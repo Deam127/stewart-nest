@@ -72,7 +72,7 @@ function renderHeader() {
     $('#baby').title = `${S.settings.baby_full_name || name} — due ${nice(due)}`;
   }
   const r = (location.hash.slice(1).split('/')[0]) || 'calendar';
-  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub' };
+  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub' };
   $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === (navOf[r] || r)));
 }
 
@@ -105,36 +105,71 @@ async function pollNotifications(show = false) {
 // ---------- login ----------
 async function viewLogin() {
   S.users = await api('users');
-  let sel = null, pin = '';
-  const v = $('#view');
-  v.innerHTML = `<div class="login">
+  let sel = null;
+  $('#view').innerHTML = `<div class="login">
     <img src="/logo.svg" alt="The Stewart Nest" style="width:220px;max-width:70vw"><div class="muted">Who's there?</div>
     <div class="who">${S.users.map((u) => `<button data-u="${u.id}"><span class="e">${u.emoji}</span>${esc(u.name)}</button>`).join('')}</div>
-    <div id="pin-area" hidden>
-      <div id="pin-msg" class="muted"></div>
-      <div class="dots">${'<i></i>'.repeat(4)}</div>
+    <form id="pw-area" hidden autocomplete="on">
+      <div id="pw-msg" class="muted" style="margin-bottom:8px"></div>
+      <input type="text" name="username" id="pw-user" autocomplete="username" hidden>
+      <div class="row"><input type="password" id="pw" autocomplete="current-password" placeholder="Password" class="grow">
+        <button type="button" class="btn ghost small" id="pw-eye" title="Show password">👁</button></div>
+      <input type="password" id="pw2" autocomplete="new-password" placeholder="Type it again" style="margin-top:8px" hidden>
       <div class="err" id="err"></div>
-      <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, '⌫'].map((k) => k === '' ? '<span></span>' : `<button data-k="${k}">${k}</button>`).join('')}</div>
-    </div></div>`;
-  const dots = () => $$('.dots i').forEach((d, i) => d.classList.toggle('on', i < pin.length));
+      <button class="btn" style="width:100%" id="pw-go">Log in</button>
+    </form></div>`;
   $$('.who button').forEach((b) => b.onclick = () => {
-    sel = S.users.find((u) => u.id === b.dataset.u); pin = ''; dots(); $('#err').textContent = '';
+    sel = S.users.find((u) => u.id === b.dataset.u); $('#err').textContent = '';
     $$('.who button').forEach((x) => x.classList.toggle('sel', x === b));
-    $('#pin-area').hidden = false;
-    $('#pin-msg').textContent = sel.has_pin ? `Hi ${sel.name}, enter your PIN` : `Hi ${sel.name}! First time — choose a 4-digit PIN you'll remember`;
+    $('#pw-user').value = sel.id;
+    const setup = !sel.has_password && sel.can_set_up;
+    const blocked = !sel.has_password && !sel.can_set_up;
+    $('#pw-area').hidden = false;
+    $('#pw-msg').textContent = blocked ? `Hi ${sel.name}! Your password hasn't been set up yet. Ask Lee Roy to set one for you.`
+      : setup ? `Hi ${sel.name}! You're the admin. Choose your password (at least 6 characters).` : `Hi ${sel.name}, enter your password`;
+    $('#pw').hidden = blocked; $('#pw-eye').hidden = blocked; $('#pw-go').hidden = blocked;
+    $('#pw2').hidden = !setup;
+    $('#pw').autocomplete = setup ? 'new-password' : 'current-password';
+    $('#pw-go').textContent = setup ? 'Save password & log in' : 'Log in';
+    if (!blocked) $('#pw').focus();
   });
-  $$('.pad button').forEach((b) => b.onclick = async () => {
-    const k = b.dataset.k;
-    if (k === '⌫') pin = pin.slice(0, -1); else if (pin.length < 4) pin += k;
-    dots();
-    if (pin.length === 4) {
-      try {
-        const r = await api('login', { body: { user: sel.id, pin } });
-        if (r.firstTime) toast('PIN saved. Welcome to the Nest!');
-        await boot();
-      } catch (e) { $('#err').textContent = e.message; pin = ''; dots(); }
-    }
-  });
+  $('#pw-eye').onclick = () => { const t = $('#pw').type === 'password' ? 'text' : 'password'; $('#pw').type = t; $('#pw2').type = t; };
+  $('#pw-area').onsubmit = async (e) => {
+    e.preventDefault();
+    const password = $('#pw').value;
+    if (!$('#pw2').hidden && password !== $('#pw2').value) { $('#err').textContent = "The two passwords don't match"; return; }
+    try {
+      const r = await api('login', { body: { user: sel.id, password } });
+      if (r.firstTime) toast('Password saved. Welcome to the Nest!');
+      await boot();
+    } catch (err) { $('#err').textContent = err.message; $('#pw').select(); }
+  };
+}
+
+// Shown after logging in with a temporary password (or an old PIN): choose a new password before anything else
+async function viewMustChange() {
+  $('#top').hidden = true; $('#nav').hidden = true;
+  $('#view').innerHTML = `<div class="login">
+    <img src="/icon.svg" alt="" style="width:110px">
+    <h1>Hi ${esc(S.me.name)}, choose your own password</h1>
+    <p class="muted">You logged in with a temporary password (or your old PIN). Pick a new one that only you know, at least 6 characters.</p>
+    <form id="mc">
+      <input type="password" id="mc-old" autocomplete="current-password" placeholder="Temporary password / old PIN">
+      <input type="password" id="mc-new" autocomplete="new-password" placeholder="New password" style="margin-top:8px">
+      <input type="password" id="mc-new2" autocomplete="new-password" placeholder="New password again" style="margin-top:8px">
+      <div class="err" id="err"></div>
+      <button class="btn" style="width:100%">Save my password</button>
+      <button type="button" class="btn ghost small" style="margin-top:10px" id="mc-out">Log out</button>
+    </form></div>`;
+  $('#mc').onsubmit = async (e) => {
+    e.preventDefault();
+    if ($('#mc-new').value !== $('#mc-new2').value) { $('#err').textContent = "The new passwords don't match"; return; }
+    try {
+      await api('password', { body: { old: $('#mc-old').value, password: $('#mc-new').value } });
+      toast('Password saved 👍'); location.hash = '#calendar'; await boot();
+    } catch (err) { $('#err').textContent = err.message; }
+  };
+  $('#mc-out').onclick = async () => { await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
 }
 
 // ---------- calendar ----------
@@ -209,7 +244,7 @@ async function viewDay(date) {
   const portions = (p) => { try { const a = JSON.parse(p || '[]'); return a.length ? `<div class="muted">Lee Roy: ${esc(a[0])}<br>Shirley: ${esc(a[1])}<br>Skyler: ${esc(a[2])}</div>` : ''; } catch { return ''; } };
   const meals = ['b', 'l', 's'].map((k) => {
     const m = d.menu.find((x) => x.meal === k);
-    const opts = recipes.filter((r) => r.meal === k && r.active && !r.id.endsWith('r'))
+    const opts = recipes.filter((r) => r.meal === k && r.active && !r.name.startsWith('Rain plan:'))
       .map((r) => `<option value="${r.id}" ${m && m.recipe_id === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
     if (!m) return `<div class="card meal-card"><div class="lbl">${MEAL[k]}</div><select data-meal="${k}"><option value="">Choose…</option>${opts}</select></div>`;
     const showBackup = m.use_backup && m.backup_name;
@@ -251,6 +286,7 @@ async function viewDay(date) {
       <button class="btn small ghost" id="dnext">›</button></div>
     ${wx ? `<div class="card wx-line">${wxIcon(wx.code)} <span>${wx.min}°–${wx.max}°C</span> <span class="${rainLikely(date) ? 'badge rain' : 'muted'}">${wx.rain}% chance of rain</span></div>` : ''}
     <h2>🍽️ Meals</h2>${meals}
+    <div id="day-rate"></div>
     <h2>📌 Plans</h2>${plans}
     <details class="card"><summary><strong>+ Add a plan</strong></summary>
       <label class="f">What</label><input type="text" id="p-title" placeholder="e.g. Braai with the Steyns">
@@ -282,6 +318,7 @@ async function viewDay(date) {
     await api('notes', { body: { date, text } }); toast('Note added'); viewDay(date);
   };
   wireTasks(() => viewDay(date), date);
+  if (window.dayExtras) window.dayExtras(date, d);
 }
 
 // ---------- tasks ----------
@@ -421,7 +458,7 @@ async function viewRewards(weekArg) {
 // ---------- more / settings ----------
 async function viewMore() {
   const recipes = S.recipes = await api('recipes');
-  const sup = recipes.filter((r) => r.meal === 's' && !r.id.endsWith('r'));
+  const sup = recipes.filter((r) => r.meal === 's' && !r.name.startsWith('Rain plan:'));
   const notifState = !('Notification' in window) ? 'not supported in this browser'
     : Notification.permission === 'granted' ? 'on' : Notification.permission === 'denied' ? 'blocked (allow them in your browser settings)' : 'off';
   $('#view').innerHTML = `
@@ -455,11 +492,11 @@ async function viewMore() {
       <label class="f">Rain warning when chance of rain is at least (%)</label><input type="number" id="s-rain" value="${esc(S.settings.rain_threshold || 50)}" min="10" max="100">
       <button class="btn" style="margin-top:10px" id="s-save">Save</button></div>` : ''}
 
-    <h2>🔐 PIN</h2>
-    <div class="card"><div class="row"><input type="password" inputmode="numeric" maxlength="4" id="pin-old" placeholder="Old PIN">
-      <input type="password" inputmode="numeric" maxlength="4" id="pin-new" placeholder="New PIN"><button class="btn small" id="pin-go">Change</button></div>
-      ${S.me.is_parent ? `<div class="muted" style="margin-top:8px">Forgotten PIN? Reset it, and that person picks a new one the next time they log in:</div>
-      <div class="row wrap" style="margin-top:6px">${S.users.filter((u) => u.id !== S.me.id).map((u) => `<button class="btn small ghost" data-reset="${u.id}">Reset ${esc(u.name)}</button>`).join('')}</div>` : ''}
+    <h2>🔐 Password</h2>
+    <div class="card"><input type="password" id="pw-old" autocomplete="current-password" placeholder="Current password">
+      <input type="password" id="pw-new" autocomplete="new-password" placeholder="New password (6+ characters)" style="margin-top:8px">
+      <button class="btn small" style="margin-top:8px" id="pw-change">Change password</button>
+      ${S.me.is_admin ? '<div class="muted" style="margin-top:8px">Someone forgot theirs? Go to <a href="#users">👥 Family profiles</a> to give them a temporary password.</div>' : '<div class="muted" style="margin-top:8px">Forgot it? Ask Lee Roy for a temporary one.</div>'}
     </div>
     `;
 
@@ -478,14 +515,10 @@ async function viewMore() {
     S.settings = await put('settings', { baby_full_name: $('#s-bfull').value, baby_due: $('#s-due').value, rain_threshold: $('#s-rain').value, grocery_budget: $('#s-gb').value, meat_budget: $('#s-mb').value });
     renderHeader(); toast('Saved');
   });
-  $('#pin-go').onclick = async () => {
-    try { await api('pin', { body: { old: $('#pin-old').value, pin: $('#pin-new').value } }); toast('PIN changed'); $('#pin-old').value = $('#pin-new').value = ''; }
+  $('#pw-change').onclick = async () => {
+    try { await api('password', { body: { old: $('#pw-old').value, password: $('#pw-new').value } }); toast('Password changed'); $('#pw-old').value = $('#pw-new').value = ''; }
     catch (e) { toast(e.message); }
   };
-  $$('[data-reset]').forEach((b) => b.onclick = async () => {
-    if (!confirm(`Reset ${user(b.dataset.reset).name}'s PIN?`)) return;
-    await api(`users/${b.dataset.reset}/reset-pin`, { body: {} }); toast('PIN reset');
-  });
 }
 
 // ---------- routing ----------
@@ -493,6 +526,7 @@ async function route() {
   const [r, a, b] = location.hash.slice(1).split('/');
   $('#notif-panel').hidden = true;
   if (!S.me && r !== 'login') { location.hash = '#login'; return; }
+  if (S.me && S.me.must_change) return viewMustChange();
   renderHeader();
   window.scrollTo(0, 0);
   try {
@@ -512,6 +546,7 @@ async function boot() {
     const me = await fetch('/api/me', { credentials: 'same-origin' });
     if (me.ok) {
       S.me = await me.json();
+      if (S.me.must_change) return viewMustChange();
       [S.users, S.settings] = await Promise.all([api('users'), api('settings')]);
       pollNotifications();
       if (location.hash === '#login' || !location.hash) { location.hash = '#calendar'; return; } // hashchange will route

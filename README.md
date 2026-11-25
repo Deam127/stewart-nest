@@ -3,7 +3,12 @@
 The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea May).
 
 **Phase 1 (this version)**
-- **Logins** for Lee Roy, Shirley and Skyler. Each person picks a 4-digit PIN the first time they log in. Five wrong PINs lock that profile for 15 minutes, and Mom or Dad can reset a forgotten PIN.
+- **Logins with passwords.** Lee Roy is the **admin**:
+  - On the very first login, Lee Roy chooses his own password (at least 6 characters).
+  - In **Family → 👥 Family profiles**, Lee Roy gives Shirley and Skyler a temporary password. They log in with it once, then must choose their own.
+  - Old 4-digit PINs from earlier versions work once, then a new password is required.
+  - Five wrong passwords lock a profile for 15 minutes. The admin can unlock it by setting a temporary password.
+  - The admin can add family members (e.g. Madilea later, or a grandparent), edit names, emoji and colours, and switch profiles off.
 - **Calendar landing page** showing the month's suppers. Tap a day to see breakfast, lunch and supper with everyone's portions and the method.
 - **Seasonal menu.** Each month's menu builds itself from a rotation:
   - summer (Oct–Mar): braais and salads
@@ -23,7 +28,9 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
   - a reward goal per person, and Mom or Dad hands the reward out
 - **Madilea countdown** in the header.
 
-**Phase 2 (next):** family chat, fun-time ideas, Madilea's going-out bag and monthly buy list, stock take before shopping, barcode and photo inventory, and workouts.
+**Also in this version:** meal ratings (stars, keep/swap, comments, with a report to paste into Claude), plus phone home-screen icons.
+
+**Phase 2 (done):** family chat, fun-time ideas, Madilea's going-out bag and monthly buy list, stock take before shopping, barcode and photo inventory, and workouts.
 
 ---
 
@@ -47,6 +54,8 @@ Open **http://localhost:8787**.
 
 **Phones on the home Wi-Fi:** use the laptop's IP address instead, for example `http://192.168.1.20:8787`. To find the IP, run `ipconfig` on Windows and look for the IPv4 address. Chrome on Android can then "Add to Home screen".
 
+> Updating: copy the new files over the old folder. The database upgrades itself automatically the next time the app starts, so your data stays.
+>
 > ⚠️ `npm run setup` (also `npm run db:reset`) **wipes all data** and starts fresh. Only run it the first time.
 > Data lives in `.wrangler/state` inside the folder. Back that folder up if you care about it.
 

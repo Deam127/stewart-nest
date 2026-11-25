@@ -12,7 +12,8 @@ INSERT INTO settings (key, value) VALUES
   ('lat', '-26.1016'),
   ('lon', '27.7695'),
   ('town', 'Krugersdorp'),
-  ('rain_threshold', '50');
+  ('rain_threshold', '50'),
+  ('schema_version', '2');
 
 -- days: 1=Mon … 7=Sun
 INSERT INTO task_templates (title, area, assignee, days, points, created_by) VALUES

@@ -1,10 +1,11 @@
 // The Stewart Nest — API (Cloudflare Worker + D1)
 // Static files in /public are served by Workers Assets; everything under /api lands here.
 
-import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, sha256, randomHex, getCookie, body, notify, currentUser, ensureTemplateTasks, decorateTask } from './util.js';
+import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask } from './util.js';
+import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
+import { ratings } from './ratings.js';
 import { phase2 } from './phase2.js';
 
-const SESSION_DAYS = 60;
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
   'Yard', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
 
@@ -38,7 +39,7 @@ async function generateMonth(db, ym, season, overwrite) {
   const first = `${ym}-01`;
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   if (season === 'auto') season = (m >= 4 && m <= 9) ? 'winter' : 'summer'; // SA seasons
-  const { results: recs } = await db.prepare('SELECT id, active, season FROM recipes').all();
+  const { results: recs } = await db.prepare('SELECT id, name, active, season FROM recipes').all();
   const ok = Object.fromEntries(recs.map((r) => [r.id, r.active && (r.season === 'all' || r.season === season)]));
   const rot = ROTATION[season];
   // Week index counted from a fixed Monday so consecutive months keep rotating
@@ -49,7 +50,7 @@ async function generateMonth(db, ym, season, overwrite) {
     const wd = weekday(d);
     const wk = Math.floor(dayDiff(epoch, d) / 7);
     const pool = rot[wd].filter((id) => ok[id]);
-    const fallback = recs.filter((r) => ok[r.id] && r.id.startsWith('s_') && !r.id.endsWith('r')).map((r) => r.id);
+    const fallback = recs.filter((r) => ok[r.id] && r.id.startsWith('s_') && !r.name.startsWith('Rain plan:')).map((r) => r.id);
     const list = pool.length ? pool : fallback;
     const supper = list[((wk % list.length) + list.length) % list.length];
     const verb = overwrite ? 'INSERT OR REPLACE' : 'INSERT OR IGNORE';
@@ -87,71 +88,24 @@ async function api(req, env, url) {
   const q = url.searchParams;
   const parts = path.split('/');
 
-  // ----- public endpoints -----
-  if (path === 'users' && method === 'GET') {
-    const { results } = await db.prepare('SELECT id, name, full_name, colour, emoji, is_parent, pin_hash IS NOT NULL AS has_pin FROM users ORDER BY is_parent DESC, name').all();
-    return json(results);
-  }
+  await ensureSchema(db);
 
-  if (path === 'login' && method === 'POST') {
-    const { user, pin } = await body(req);
-    if (!/^\d{4}$/.test(pin || '')) return bad('PIN must be 4 digits');
-    const u = await db.prepare('SELECT * FROM users WHERE id = ?').bind(user).first();
-    if (!u) return bad('Unknown person', 404);
-    if (u.locked_until && u.locked_until > new Date().toISOString())
-      return bad('Too many wrong PINs. Try again in 15 minutes, or ask Mom or Dad to reset it.', 429);
-    let firstTime = false;
-    if (!u.pin_hash) {
-      const salt = randomHex(16);
-      await db.prepare('UPDATE users SET pin_hash = ?, salt = ?, failed = 0 WHERE id = ?').bind(await sha256(salt + pin), salt, u.id).run();
-      firstTime = true;
-    } else if ((await sha256(u.salt + pin)) !== u.pin_hash) {
-      const failed = u.failed + 1;
-      const lock = failed >= 5 ? new Date(Date.now() + 15 * 60e3).toISOString() : null;
-      await db.prepare('UPDATE users SET failed = ?, locked_until = ? WHERE id = ?').bind(lock ? 0 : failed, lock, u.id).run();
-      return bad('Wrong PIN', 401);
-    }
-    await db.prepare('UPDATE users SET failed = 0, locked_until = NULL WHERE id = ?').bind(u.id).run();
-    const token = randomHex(32);
-    await db.prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', '+${SESSION_DAYS} days'))`).bind(token, u.id).run();
-    const secure = url.protocol === 'https:' ? '; Secure' : '';
-    return json({ ok: true, firstTime }, 200, {
-      'set-cookie': `nest_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`,
-    });
-  }
+  // ----- public endpoints (login) -----
+  const pub = await authPublic({ req, db, url, path, method });
+  if (pub) return pub;
 
   // ----- everything below needs a login -----
   const me = await currentUser(req, db);
   if (!me) return bad('Please log in', 401);
-
-  if (path === 'logout' && method === 'POST') {
-    await db.prepare('DELETE FROM sessions WHERE token = ?').bind(getCookie(req, 'nest_session')).run();
-    return json({ ok: true }, 200, { 'set-cookie': 'nest_session=; Path=/; Max-Age=0' });
-  }
   if (path === 'me') return json({ ...me, areas: AREAS });
-
-  if (path === 'pin' && method === 'POST') {
-    const { old, pin } = await body(req);
-    if (!/^\d{4}$/.test(pin || '')) return bad('New PIN must be 4 digits');
-    const u = await db.prepare('SELECT * FROM users WHERE id = ?').bind(me.id).first();
-    if ((await sha256(u.salt + old)) !== u.pin_hash) return bad('Old PIN is wrong', 401);
-    const salt = randomHex(16);
-    await db.prepare('UPDATE users SET pin_hash = ?, salt = ? WHERE id = ?').bind(await sha256(salt + pin), salt, me.id).run();
-    return json({ ok: true });
-  }
-  if (parts[0] === 'users' && parts[2] === 'reset-pin' && method === 'POST') {
-    if (!me.is_parent) return bad('Only Mom or Dad can reset a PIN', 403);
-    await db.batch([
-      db.prepare('UPDATE users SET pin_hash = NULL, salt = NULL, failed = 0, locked_until = NULL WHERE id = ?').bind(parts[1]),
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(parts[1]),
-    ]);
-    return json({ ok: true });
-  }
+  const priv = await authPrivate({ req, db, path, parts, method, me });
+  if (priv) return priv;
+  const others = await othersOf(db, me);
 
   // ----- settings -----
   if (path === 'settings') {
     if (method === 'PUT') {
-      if (!me.is_parent) return bad('Only Mom or Dad can change settings', 403);
+      if (!me.is_parent && !me.is_admin) return bad('Only Mom or Dad can change settings', 403);
       const b = await body(req);
       const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget'];
       const stmts = Object.entries(b).filter(([k]) => allowed.includes(k)).map(([k, v]) =>
@@ -206,7 +160,7 @@ async function api(req, env, url) {
   if (path === 'menu/backup' && method === 'PUT') {
     const { date, meal = 's', use_backup } = await body(req);
     await db.prepare('UPDATE menu SET use_backup = ? WHERE date = ? AND meal = ?').bind(use_backup ? 1 : 0, date, meal).run();
-    if (use_backup) await notify(db, ['lee-roy', 'shirley', 'skyler'].filter((u) => u !== me.id),
+    if (use_backup) await notify(db, others,
       `☔ ${me.name} switched ${fmtShort(date)} to the rain-out plan`, `#day/${date}`);
     return json({ ok: true });
   }
@@ -239,7 +193,7 @@ async function api(req, env, url) {
     if (!isDate(b.date) || !b.title) return bad('date and title needed');
     const r = await db.prepare('INSERT INTO day_plans (date, time, title, outdoor, rain_plan, created_by) VALUES (?, ?, ?, ?, ?, ?)')
       .bind(b.date, b.time || null, b.title, b.outdoor ? 1 : 0, b.rain_plan || null, me.id).run();
-    await notify(db, ['lee-roy', 'shirley', 'skyler'].filter((u) => u !== me.id), `📅 ${me.name} planned "${b.title}" for ${fmtShort(b.date)}`, `#day/${b.date}`);
+    await notify(db, others, `📅 ${me.name} planned "${b.title}" for ${fmtShort(b.date)}`, `#day/${b.date}`);
     return json({ ok: true, id: r.meta.last_row_id });
   }
   if (parts[0] === 'plans' && parts[1]) {
@@ -251,7 +205,7 @@ async function api(req, env, url) {
       if (!p) return bad('Not found', 404);
       await db.prepare('UPDATE day_plans SET time = ?, title = ?, outdoor = ?, rain_plan = ?, use_rain = ? WHERE id = ?').bind(
         b.time ?? p.time, b.title ?? p.title, (b.outdoor ?? p.outdoor) ? 1 : 0, b.rain_plan ?? p.rain_plan, (b.use_rain ?? p.use_rain) ? 1 : 0, id).run();
-      if (b.use_rain && !p.use_rain) await notify(db, ['lee-roy', 'shirley', 'skyler'].filter((u) => u !== me.id),
+      if (b.use_rain && !p.use_rain) await notify(db, others,
         `☔ "${p.title}" on ${fmtShort(p.date)} is now: ${p.rain_plan || 'rain plan'}`, `#day/${p.date}`);
       return json({ ok: true });
     }
@@ -262,7 +216,7 @@ async function api(req, env, url) {
     const { date, text } = await body(req);
     if (!isDate(date) || !text?.trim()) return bad('date and text needed');
     await db.prepare('INSERT INTO notes (date, user_id, text) VALUES (?, ?, ?)').bind(date, me.id, text.trim()).run();
-    await notify(db, ['lee-roy', 'shirley', 'skyler'].filter((u) => u !== me.id), `📝 ${me.name} added a note on ${fmtShort(date)}`, `#day/${date}`);
+    await notify(db, others, `📝 ${me.name} added a note on ${fmtShort(date)}`, `#day/${date}`);
     return json({ ok: true });
   }
   if (parts[0] === 'notes' && parts[1] && method === 'DELETE') {
@@ -426,7 +380,10 @@ async function api(req, env, url) {
     return json({ ok: true });
   }
 
-  const p2 = await phase2({ req, env, db, url, path, parts, method, q, me });
+  const rt = await ratings({ req, db, path, method, q, me });
+  if (rt) return rt;
+
+  const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
   if (p2) return p2;
 
   return bad('Not found', 404);

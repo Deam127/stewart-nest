@@ -94,7 +94,9 @@ ROUTES.hub = async () => {
       <a href="#fun"><span class="i">🎉</span><strong>Family fun</strong><span class="muted">Ideas & votes</span></a>
       <a href="#madilea"><span class="i">👶</span><strong>${esc(name)}</strong><span class="muted">Countdown, bags & buy list</span></a>
       <a href="#shop/inventory"><span class="i">📦</span><strong>Inventory</strong><span class="muted">Codes, barcodes, photos</span></a>
-      <a href="#more"><span class="i">⚙️</span><strong>Settings</strong><span class="muted">Menu, PINs, budgets</span></a>
+      <a href="#ratings"><span class="i">⭐</span><strong>Meal ratings</strong><span class="muted">Scores & export for Claude</span></a>
+      <a href="#more"><span class="i">⚙️</span><strong>Settings</strong><span class="muted">Menu, password, budgets</span></a>
+      ${S.me.is_admin ? '<a href="#users"><span class="i">👥</span><strong>Family profiles</strong><span class="muted">Admin: passwords & people</span></a>' : ''}
     </div>`;
 };
 
