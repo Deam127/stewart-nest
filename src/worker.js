@@ -4,33 +4,13 @@
 import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask } from './util.js';
 import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
 import { ratings } from './ratings.js';
+import { recipes as recipeApi } from './recipes.js';
+import { events as eventApi, occurrences } from './events.js';
 import { phase2 } from './phase2.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
   'Yard', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
 
-// Weekly supper rotation by weekday (1=Mon … 7=Sun) and season.
-// Each slot cycles through its list week by week; inactive recipes are skipped.
-const ROTATION = {
-  summer: {
-    1: ['s_bol', 's_las', 's_bob', 's_cot'],
-    2: ['s_cur'],
-    3: ['s_ff', 's_mac', 's_vet'],
-    4: ['s_sfn', 's_alk', 's_sfr'],
-    5: ['s_win'],
-    6: ['s_br1', 's_br2', 's_br3', 's_br4'],
-    7: ['s_rst', 's_stw'],
-  },
-  winter: {
-    1: ['s_bol', 's_cot', 's_bob', 's_las'],
-    2: ['s_cur'],
-    3: ['s_soup', 's_mac', 's_vet', 's_len'],
-    4: ['s_alk', 's_stw', 's_efr'],
-    5: ['s_win'],
-    6: ['s_br1', 's_br3', 's_br2', 's_br4'],
-    7: ['s_stw', 's_rst'],
-  },
-};
 const BREAKFASTS = { 1: 'b1', 2: 'b2', 3: 'b3', 4: 'b4', 5: 'b5', 6: 'b6', 7: 'b7' };
 const LUNCHES = { 1: 'l_tt', 2: 'l_em', 3: 'l_tt', 4: 'l_nd', 5: 'l_lo', 6: 'l_pj', 7: 'l_rc' };
 
@@ -41,7 +21,9 @@ async function generateMonth(db, ym, season, overwrite) {
   if (season === 'auto') season = (m >= 4 && m <= 9) ? 'winter' : 'summer'; // SA seasons
   const { results: recs } = await db.prepare('SELECT id, name, active, season FROM recipes').all();
   const ok = Object.fromEntries(recs.map((r) => [r.id, r.active && (r.season === 'all' || r.season === season)]));
-  const rot = ROTATION[season];
+  const { results: rotRows } = await db.prepare('SELECT weekday, recipe_id FROM rotation WHERE season = ? ORDER BY weekday, sort').bind(season).all();
+  const rot = {};
+  rotRows.forEach((r) => (rot[r.weekday] = rot[r.weekday] || []).push(r.recipe_id));
   // Week index counted from a fixed Monday so consecutive months keep rotating
   const epoch = '2026-01-05';
   const stmts = [];
@@ -49,7 +31,7 @@ async function generateMonth(db, ym, season, overwrite) {
     const d = addDays(first, i);
     const wd = weekday(d);
     const wk = Math.floor(dayDiff(epoch, d) / 7);
-    const pool = rot[wd].filter((id) => ok[id]);
+    const pool = (rot[wd] || []).filter((id) => ok[id]);
     const fallback = recs.filter((r) => ok[r.id] && r.id.startsWith('s_') && !r.name.startsWith('Rain plan:')).map((r) => r.id);
     const list = pool.length ? pool : fallback;
     const supper = list[((wk % list.length) + list.length) % list.length];
@@ -130,7 +112,8 @@ async function api(req, env, url) {
       db.prepare(`SELECT due_date AS date, COUNT(*) AS n, SUM(done_at IS NOT NULL) AS done
         FROM tasks WHERE area = 'Workouts' AND due_date BETWEEN ? AND ? GROUP BY due_date`).bind(from, to),
     ]);
-    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results, workouts: workouts.results });
+    const evs = await occurrences(db, from, `${ym}-31`);
+    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results, workouts: workouts.results, events: evs });
   }
 
   if (path === 'day' && method === 'GET') {
@@ -141,7 +124,7 @@ async function api(req, env, url) {
       db.prepare(`SELECT p.*, u.name AS by_name FROM day_plans p LEFT JOIN users u ON u.id = p.created_by WHERE date = ? ORDER BY time`).bind(date),
       db.prepare(`SELECT n.id, n.text, n.user_id, n.created_at, u.name, u.emoji, u.colour FROM notes n JOIN users u ON u.id = n.user_id WHERE date = ? ORDER BY n.id`).bind(date),
     ]);
-    return json({ menu: menu.results, plans: plans.results, notes: notes.results });
+    return json({ menu: menu.results, plans: plans.results, notes: notes.results, events: await occurrences(db, date, date) });
   }
 
   // ----- menu & recipes -----
@@ -382,6 +365,10 @@ async function api(req, env, url) {
 
   const rt = await ratings({ req, db, path, method, q, me });
   if (rt) return rt;
+  const rc = await recipeApi({ req, db, path, parts, method, q, me, generateMonth });
+  if (rc) return rc;
+  const ev = await eventApi({ req, db, path, parts, method, q, me, others });
+  if (ev) return ev;
 
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
   if (p2) return p2;

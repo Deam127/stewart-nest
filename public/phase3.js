@@ -79,7 +79,7 @@ ROUTES.users = async () => {
 const starsHtml = (n, attr = '') => [1, 2, 3, 4, 5].map((i) => `<button class="star ${i <= (n || 0) ? 'on' : ''}" data-star="${i}" ${attr}>★</button>`).join('');
 
 // Rating box under the meals on a day (supper only, once it's been eaten)
-window.dayExtras = async (date, day) => {
+(window.dayHooks = window.dayHooks || []).push(async function rateHook(date, day) {
   const box = $('#day-rate'); if (!box) return;
   const supper = day.menu.find((m) => m.meal === 's');
   if (!supper || date > todayStr()) return;
@@ -102,9 +102,9 @@ window.dayExtras = async (date, day) => {
   $('#rt-save', box).onclick = async () => {
     if (!stars && !verdict) return toast('Tap some stars first');
     await put('ratings', { date, recipe_id: recipeId, stars, verdict, comment: $('#rt-c', box).value });
-    toast('Thanks for rating! ⭐'); window.dayExtras(date, day);
+    toast('Thanks for rating! ⭐'); rateHook(date, day);
   };
-};
+});
 
 ROUTES.ratings = async () => {
   const rows = await api('ratings/summary');

@@ -72,7 +72,7 @@ function renderHeader() {
     $('#baby').title = `${S.settings.baby_full_name || name} — due ${nice(due)}`;
   }
   const r = (location.hash.slice(1).split('/')[0]) || 'calendar';
-  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub' };
+  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub', events: 'hub', recipes: 'hub', plan: 'hub' };
   $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === (navOf[r] || r)));
 }
 
@@ -192,6 +192,10 @@ async function viewCalendar() {
   const plans = by(data.plans), notes = Object.fromEntries(data.notes.map((r) => [r.date, r.n]));
   const tasks = Object.fromEntries(data.tasks.map((r) => [r.date, r]));
   const wo = Object.fromEntries((data.workouts || []).map((r) => [r.date, r]));
+  const evs = by((data.events || []).filter((e) => !e.quiet));
+  const hol = Object.fromEntries((data.events || []).filter((e) => e.category === 'holiday').map((e) => [e.date, e.title]));
+  const school = new Set((data.events || []).filter((e) => e.category === 'term').map((e) => e.date));
+  const EV_ICON = { holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
   let cells = '';
   for (let i = 0; i < lead; i++) cells += '<div class="cell blank"></div>';
   for (let d = 1; d <= nDays; d++) {
@@ -201,8 +205,11 @@ async function viewCalendar() {
     const rainy = rainLikely(date) && outdoorToday;
     const usingBackup = s && s.use_backup;
     const t = tasks[date];
-    cells += `<div class="cell ${date === today ? 'today' : ''} ${date < today ? 'past' : ''} ${rainy ? 'rainy' : ''}" data-d="${date}">
-      <div class="n"><span>${d}</span>${wx ? `<span class="wx" title="${wx.rain}% chance of rain">${wxIcon(wx.code)}${wx.rain >= 30 ? wx.rain + '%' : ''}</span>` : ''}</div>
+    const dayEv = (evs[date] || []).filter((e) => e.category !== 'holiday');
+    cells += `<div class="cell ${date === today ? 'today' : ''} ${date < today ? 'past' : ''} ${rainy ? 'rainy' : ''} ${hol[date] ? 'hol' : ''}" data-d="${date}">
+      <div class="n ${school.has(date) ? 'sch' : ''}"><span>${d}</span>${wx ? `<span class="wx" title="${wx.rain}% chance of rain">${wxIcon(wx.code)}${wx.rain >= 30 ? wx.rain + '%' : ''}</span>` : ''}</div>
+      ${hol[date] ? `<div class="holname">🇿🇦 ${esc(hol[date])}</div>` : ''}
+      ${dayEv.slice(0, 2).map((e) => `<div class="evchip">${e.title.match(/^\p{Extended_Pictographic}/u) ? '' : (EV_ICON[e.category] || '📌') + ' '}${esc(e.title)}</div>`).join('')}${dayEv.length > 2 ? `<div class="evchip">+${dayEv.length - 2} more</div>` : ''}
       ${s ? `<div class="meal ${usingBackup ? 'backup' : ''}">${usingBackup ? '☔ ' + esc(s.backup_name.replace(/^Rain plan: /, '')) : (s.outdoor ? '🔥 ' : '') + esc(s.name)}</div>` : ''}
       <div class="marks">
         ${rainy ? '<span class="badge rain">☔ rain?</span>' : ''}
@@ -223,7 +230,7 @@ async function viewCalendar() {
       ${ym !== today.slice(0, 7) ? '<button class="btn small ghost" id="this">This month</button>' : ''}
     </div>
     <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>
-    <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned</p>`;
+    <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned · 🇿🇦 public holiday · 🎒 school · 🗑️ bin day · <span style="border-bottom:3px solid #8bb5a5">school day</span></p>`;
   $('#prev').onclick = () => { S.month = ymd(new Date(y, m - 2, 1)).slice(0, 7); viewCalendar(); };
   $('#next').onclick = () => { S.month = ymd(new Date(y, m, 1)).slice(0, 7); viewCalendar(); };
   $('#this') && ($('#this').onclick = () => { S.month = today.slice(0, 7); viewCalendar(); });
@@ -285,6 +292,7 @@ async function viewDay(date) {
       <h1 style="margin:0;text-align:center">${nice(date)}</h1>
       <button class="btn small ghost" id="dnext">›</button></div>
     ${wx ? `<div class="card wx-line">${wxIcon(wx.code)} <span>${wx.min}°–${wx.max}°C</span> <span class="${rainLikely(date) ? 'badge rain' : 'muted'}">${wx.rain}% chance of rain</span></div>` : ''}
+    <div id="day-events"></div>
     <h2>🍽️ Meals</h2>${meals}
     <div id="day-rate"></div>
     <h2>📌 Plans</h2>${plans}
@@ -318,7 +326,7 @@ async function viewDay(date) {
     await api('notes', { body: { date, text } }); toast('Note added'); viewDay(date);
   };
   wireTasks(() => viewDay(date), date);
-  if (window.dayExtras) window.dayExtras(date, d);
+  (window.dayHooks || []).forEach((h) => h(date, d));
 }
 
 // ---------- tasks ----------

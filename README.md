@@ -28,6 +28,24 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
   - a reward goal per person, and Mom or Dad hands the reward out
 - **Madilea countdown** in the header.
 
+**Planning & schedule (latest):**
+- **📖 Recipes:** a catalogue of breakfasts, lunches and suppers with ingredients linked to inventory items (pack sizes and prices), a cost per meal, portions and method. Add new recipes and new ingredient items.
+- **🔁 Weekly rotation:** which suppers cycle on which weekday, separately for summer and winter. Monthly menus are built from it.
+- **🗓️ Plan ahead:** build menus months ahead, then pick any date range to see every ingredient needed in packs, minus what's in the cupboard, costed against the budget. One tap turns it into the shopping list.
+- **📅 Events & schedule:**
+  - one-off, weekly, monthly or yearly events
+  - "school days only" (skips holidays and school breaks) and "skip public holidays"
+  - routines shown on the day page only
+  - reminders the day before (from 17:00) or the morning of (from 06:00); a child's reminders also go to the grown-ups
+- **Preloaded:**
+  - SA public holidays from Dec 2026 to Dec 2027
+  - public school terms for 2026 term 4 and all of 2027 (DBE gazette), with schools open/close reminders
+  - Wednesday bin day (reminder Tuesday evening)
+  - Lee Roy's work routine (07:00–17:30, weekdays, not public holidays)
+  - Skyler's school days
+  - Madilea's due date
+  - The bins chore moved to Tuesday.
+
 **Also in this version:** meal ratings (stars, keep/swap, comments, with a report to paste into Claude), plus phone home-screen icons.
 
 **Phase 2 (done):** family chat, fun-time ideas, Madilea's going-out bag and monthly buy list, stock take before shopping, barcode and photo inventory, and workouts.

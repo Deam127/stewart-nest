@@ -1,5 +1,6 @@
 // The Stewart Nest — logins, passwords, admin (user management) and automatic database upgrades.
 import { json, bad, body, randomHex, sha256, getCookie } from './util.js';
+import { UPGRADES } from './migrations.js';
 
 const SESSION_DAYS = 60;
 const MIN_LEN = 6;
@@ -7,40 +8,23 @@ const MIN_LEN = 6;
 // ---------- automatic schema upgrades ----------
 // Runs once per server start. Brings an existing database up to date without wiping data,
 // so there's nothing to run by hand after updating the app files.
-let schemaChecked = false;
-const UPGRADES = {
-  3: [
-    'ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
-    'ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0',
-    "ALTER TABLE users ADD COLUMN hash_algo TEXT NOT NULL DEFAULT 'sha256-pin'",
-    'ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1',
-    "UPDATE users SET is_admin = 1 WHERE id = 'lee-roy'",
-    // Old 4-digit PINs still work once, then everyone must choose a proper password
-    "UPDATE users SET must_change = 1 WHERE pin_hash IS NOT NULL AND hash_algo = 'sha256-pin'",
-    `CREATE TABLE IF NOT EXISTS meal_ratings (
-       date       TEXT NOT NULL,
-       recipe_id  TEXT NOT NULL,
-       user_id    TEXT NOT NULL,
-       stars      INTEGER,
-       verdict    TEXT,
-       comment    TEXT,
-       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-       PRIMARY KEY (date, recipe_id, user_id))`,
-  ],
-};
-export async function ensureSchema(db) {
-  if (schemaChecked) return;
+let schemaPromise = null;
+export function ensureSchema(db) {
+  // share one run between requests that arrive together; retry next time if it failed
+  schemaPromise = schemaPromise || runUpgrades(db).catch((e) => { schemaPromise = null; throw e; });
+  return schemaPromise;
+}
+async function runUpgrades(db) {
   let v = 0;
   try { v = Number((await db.prepare("SELECT value FROM settings WHERE key = 'schema_version'").first())?.value || 2); } catch { return; }
   for (const target of Object.keys(UPGRADES).map(Number).sort((a, b) => a - b)) {
     if (v >= target) continue;
     for (const sql of UPGRADES[target]) {
-      try { await db.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+      try { await db.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(e.message)) { console.error('Upgrade failed:', sql.slice(0, 120)); throw e; } }
     }
     await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', ?)").bind(String(target)).run();
     v = target;
   }
-  schemaChecked = true;
 }
 
 // ---------- password hashing (PBKDF2-SHA256) ----------

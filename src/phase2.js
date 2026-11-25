@@ -4,7 +4,7 @@ import { json, bad, isDate, addDays, mondayOf, saToday, fmtShort, body, notify, 
   ensureTemplateTasks, decorateTask, familyIds } from './util.js';
 
 const num = (v, d = null) => (v === '' || v == null || isNaN(Number(v)) ? d : Number(v));
-const ITEM_FIELDS = ['barcode', 'name', 'brand', 'size', 'section', 'kind', 'price', 'shop', 'photo_key', 'par', 'on_hand', 'essential', 'active'];
+const ITEM_FIELDS = ['barcode', 'name', 'brand', 'size', 'section', 'kind', 'price', 'shop', 'photo_key', 'par', 'on_hand', 'essential', 'active', 'pack_qty', 'pack_unit'];
 
 export async function phase2({ req, env, db, url, path, parts, method, q, me, others: otherIds }) {
   const others = () => otherIds;
@@ -173,9 +173,10 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
     if (!b.name?.trim()) return bad('Name needed');
     const last = await db.prepare("SELECT code FROM items WHERE code LIKE 'NEST-%' ORDER BY code DESC LIMIT 1").first();
     const next = 'NEST-' + String((last ? Number(last.code.slice(5)) : 0) + 1).padStart(4, '0');
-    const r = await db.prepare(`INSERT INTO items (code, barcode, name, brand, size, section, kind, price, shop, photo_key, par, on_hand, essential)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(next, b.barcode || null, b.name.trim(), b.brand || null, b.size || null,
-      b.section || 'Other', b.kind || 'grocery', num(b.price), b.shop || null, b.photo_key || null, num(b.par, 1), num(b.on_hand, 0), b.essential ? 1 : 0).run();
+    const r = await db.prepare(`INSERT INTO items (code, barcode, name, brand, size, section, kind, price, shop, photo_key, par, on_hand, essential, pack_qty, pack_unit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(next, b.barcode || null, b.name.trim(), b.brand || null, b.size || null,
+      b.section || 'Other', b.kind || 'grocery', num(b.price), b.shop || null, b.photo_key || null, num(b.par, 1), num(b.on_hand, 0), b.essential ? 1 : 0,
+      num(b.pack_qty, 1), ['g', 'ml', 'each', 'kg'].includes(b.pack_unit) ? b.pack_unit : 'each').run();
     if (num(b.price)) await db.prepare('INSERT INTO item_prices (item_id, price, shop, date) VALUES (?, ?, ?, ?)').bind(r.meta.last_row_id, num(b.price), b.shop || null, saToday()).run();
     return json({ ok: true, id: r.meta.last_row_id, code: next });
   }
@@ -192,7 +193,7 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
       const sets = [], vals = [];
       for (const k of ITEM_FIELDS) if (k in b) {
         sets.push(`${k} = ?`);
-        vals.push(['price', 'par', 'on_hand'].includes(k) ? num(b[k], k === 'price' ? null : 0) : ['essential', 'active'].includes(k) ? (b[k] ? 1 : 0) : (b[k] === '' ? null : b[k]));
+        vals.push(['price', 'par', 'on_hand', 'pack_qty'].includes(k) ? num(b[k], k === 'price' ? null : 0) : ['essential', 'active'].includes(k) ? (b[k] ? 1 : 0) : (b[k] === '' ? null : b[k]));
       }
       if (!sets.length) return bad('Nothing to change');
       await db.prepare(`UPDATE items SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`).bind(...vals, id).run();

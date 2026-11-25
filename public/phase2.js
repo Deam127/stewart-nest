@@ -94,6 +94,9 @@ ROUTES.hub = async () => {
       <a href="#fun"><span class="i">🎉</span><strong>Family fun</strong><span class="muted">Ideas & votes</span></a>
       <a href="#madilea"><span class="i">👶</span><strong>${esc(name)}</strong><span class="muted">Countdown, bags & buy list</span></a>
       <a href="#shop/inventory"><span class="i">📦</span><strong>Inventory</strong><span class="muted">Codes, barcodes, photos</span></a>
+      <a href="#events"><span class="i">📅</span><strong>Events & schedule</strong><span class="muted">Holidays, school, bins, reminders</span></a>
+      <a href="#recipes"><span class="i">📖</span><strong>Recipes</strong><span class="muted">Catalogue, ingredients, rotation</span></a>
+      <a href="#plan"><span class="i">🗓️</span><strong>Plan ahead</strong><span class="muted">Months of menus → shopping</span></a>
       <a href="#ratings"><span class="i">⭐</span><strong>Meal ratings</strong><span class="muted">Scores & export for Claude</span></a>
       <a href="#more"><span class="i">⚙️</span><strong>Settings</strong><span class="muted">Menu, password, budgets</span></a>
       ${S.me.is_admin ? '<a href="#users"><span class="i">👥</span><strong>Family profiles</strong><span class="muted">Admin: passwords & people</span></a>' : ''}
@@ -518,6 +521,8 @@ async function itemSheet(it, sections) {
       <div class="grow"><label class="f">Shop</label><input type="text" id="is-shop" value="${esc(it.shop || '')}"></div></div>
     <div class="row"><div class="grow"><label class="f">Section</label><input type="text" id="is-sec" list="is-secs" value="${esc(it.section || 'Pantry')}"><datalist id="is-secs">${sections.map((x) => `<option>${esc(x)}</option>`).join('')}</datalist></div>
       <div class="grow"><label class="f">Type</label><select id="is-kind">${['grocery', 'household', 'meat', 'baby'].map((k) => `<option ${it.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></div></div>
+    <div class="row"><div class="grow"><label class="f">Amount in one pack (for recipes)</label><input type="number" step="any" id="is-pq" value="${it.pack_qty ?? ''}" placeholder="e.g. 750"></div>
+      <div style="width:100px"><label class="f">Unit</label><select id="is-pu">${['g', 'ml', 'each', 'kg'].map((u) => `<option ${(it.pack_unit || 'each') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
     <div class="row"><div class="grow"><label class="f">Keep in the house</label><input type="number" step="0.5" id="is-par" value="${it.par ?? 1}"></div>
       <div class="grow"><label class="f">Have now</label><input type="number" step="0.5" id="is-oh" value="${it.on_hand ?? 0}"></div></div>
     <label class="row" style="margin-top:8px"><input type="checkbox" id="is-ess" ${it.essential ? 'checked' : ''}> Must-have (never suggested for leaving out)</label>
@@ -537,6 +542,7 @@ async function itemSheet(it, sections) {
       barcode: $('#is-bc', s).value.trim(), price: $('#is-price', s).value, shop: $('#is-shop', s).value.trim(),
       section: $('#is-sec', s).value.trim() || 'Other', kind: $('#is-kind', s).value, par: $('#is-par', s).value,
       on_hand: $('#is-oh', s).value, essential: $('#is-ess', s).checked, photo_key: photo,
+      pack_qty: $('#is-pq', s).value, pack_unit: $('#is-pu', s).value,
     };
     if (!b.name) return toast('Name needed');
     if (isNew) { const r = await api('items', { body: b }); toast(`Added as ${r.code}`); }
