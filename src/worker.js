@@ -6,6 +6,7 @@ import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
 import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
 import { events as eventApi, occurrences } from './events.js';
+import { photos as photoApi } from './photos.js';
 import { phase2 } from './phase2.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
@@ -113,7 +114,8 @@ async function api(req, env, url) {
         FROM tasks WHERE area = 'Workouts' AND due_date BETWEEN ? AND ? GROUP BY due_date`).bind(from, to),
     ]);
     const evs = await occurrences(db, from, `${ym}-31`);
-    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results, workouts: workouts.results, events: evs });
+    const pics = (await db.prepare('SELECT id, photo_key, date, kind, caption FROM photos WHERE date BETWEEN ? AND ? ORDER BY kind = \'meal\' DESC, id').bind(from, `${ym}-31`).all()).results;
+    return json({ menu: menu.results, plans: plans.results, notes: notes.results, tasks: tasks.results, workouts: workouts.results, events: evs, photos: pics });
   }
 
   if (path === 'day' && method === 'GET') {
@@ -124,7 +126,8 @@ async function api(req, env, url) {
       db.prepare(`SELECT p.*, u.name AS by_name FROM day_plans p LEFT JOIN users u ON u.id = p.created_by WHERE date = ? ORDER BY time`).bind(date),
       db.prepare(`SELECT n.id, n.text, n.user_id, n.created_at, u.name, u.emoji, u.colour FROM notes n JOIN users u ON u.id = n.user_id WHERE date = ? ORDER BY n.id`).bind(date),
     ]);
-    return json({ menu: menu.results, plans: plans.results, notes: notes.results, events: await occurrences(db, date, date) });
+    const pics = (await db.prepare('SELECT p.*, u.name, u.emoji, r.name AS recipe_name FROM photos p LEFT JOIN users u ON u.id = p.user_id LEFT JOIN recipes r ON r.id = p.recipe_id WHERE p.date = ? ORDER BY p.id').bind(date).all()).results;
+    return json({ menu: menu.results, plans: plans.results, notes: notes.results, events: await occurrences(db, date, date), photos: pics });
   }
 
   // ----- menu & recipes -----
@@ -378,6 +381,8 @@ async function api(req, env, url) {
   if (rc) return rc;
   const ev = await eventApi({ req, db, path, parts, method, q, me, others });
   if (ev) return ev;
+  const ph = await photoApi({ req, db, path, parts, method, q, me, others });
+  if (ph) return ph;
 
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
   if (p2) return p2;

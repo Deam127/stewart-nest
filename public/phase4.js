@@ -134,12 +134,16 @@ ROUTES.recipes = async () => {
   let body = '';
   if (tab === 'rot') body = rotationEditor(cat);
   else {
-    const list = cat.recipes.filter((r) => r.meal === tab && !r.name.startsWith('Rain plan:'));
-    body = `<button class="btn" id="rc-new" style="margin-bottom:10px">+ New ${tab === 's' ? 'supper' : tab === 'b' ? 'breakfast' : 'lunch'}</button>
+    const f = (P4.recQ || '').toLowerCase(), tag = P4.recTag || '';
+    const list = cat.recipes.filter((r) => r.meal === tab && !r.name.startsWith('Rain plan:') && (!f || r.name.toLowerCase().includes(f))
+      && (!tag || (tag === 'winter' || tag === 'summer' ? r.season === tag : (r.notes || '').toLowerCase().includes(tag))));
+    body = `<div class="row wrap" style="margin-bottom:8px"><input type="text" id="rc-q" placeholder="Search recipes…" value="${esc(P4.recQ || '')}" class="grow">
+        <select id="rc-tag" style="width:auto">${[['', 'All'], ['favourite', '❤️ Favourites'], ['light', '🥗 Light'], ['budget', '💰 Budget'], ['wat eet ons', '📗 Wat eet ons vanaand?'], ['winter', '❄️ Winter'], ['summer', '☀️ Summer']].map(([k, l]) => `<option value="${k}" ${tag === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <button class="btn" id="rc-new" style="margin-bottom:10px">+ New ${tab === 's' ? 'supper' : tab === 'b' ? 'breakfast' : 'lunch'}</button> <span class="muted">${list.length} recipes</span>
       <div class="card">${list.map((r) => `<div class="item" data-rc="${r.id}" style="${r.active ? '' : 'opacity:.5'}">
         <div class="thumb">${r.outdoor ? '🔥' : tab === 's' ? '🍲' : tab === 'b' ? '🥣' : '🥪'}</div>
         <div class="grow"><div class="nm">${esc(r.name)}</div>
-          <div class="muted">${r.items.length} ingredients${r.season !== 'all' ? ' · ' + r.season : ''}${r.rain_backup ? ' · ☔ rain plan' : ''}${r.active ? '' : ' · not in use'}</div></div>
+          <div class="muted">${r.notes ? esc(r.notes.split(' — ')[0]) + ' · ' : ''}${r.items.length} ingredients${r.season !== 'all' ? ' · ' + r.season : ''}${r.rain_backup ? ' · ☔ rain plan' : ''}${r.active ? '' : ' · not in use'}</div></div>
         <div style="text-align:right"><strong>${R(r.cost)}</strong><div class="muted">per meal</div></div></div>`).join('')}</div>
       <p class="muted">Cost per meal = ingredients used × last known price. Change prices in 🛒 Shop → Inventory.</p>`;
   }
@@ -149,6 +153,10 @@ ROUTES.recipes = async () => {
   $$('[data-rc]').forEach((r) => r.onclick = () => recipeSheet(cat.recipes.find((x) => x.id === r.dataset.rc), cat));
   $('#rc-new') && ($('#rc-new').onclick = () => recipeSheet({ meal: tab, items: [], season: 'all', active: 1 }, cat));
   if (tab === 'rot') wireRotation(cat);
+  if ($('#rc-q')) {
+    $('#rc-q').oninput = () => { P4.recQ = $('#rc-q').value; clearTimeout(P4.qt); P4.qt = setTimeout(async () => { await ROUTES.recipes(); const n = $('#rc-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };
+    $('#rc-tag').onchange = () => { P4.recTag = $('#rc-tag').value; ROUTES.recipes(); };
+  }
 };
 
 function recipeSheet(r, cat) {

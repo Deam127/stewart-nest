@@ -1,6 +1,7 @@
 // The Stewart Nest — database upgrades. Each version runs once, automatically, when the app starts.
 // Existing data is kept. Add new versions at the bottom.
 import { SEED_V4 } from './seed-v4.js';
+import { SEED_V6 } from './seed-v6.js';
 
 const q = (s) => (s == null ? 'NULL' : "'" + String(s).replace(/'/g, "''") + "'");
 
@@ -153,4 +154,20 @@ export const UPGRADES = {
     "UPDATE task_templates SET title = 'Put the bins out (collection Wednesday)', days = '2' WHERE title = 'Take out the bins'",
   ],
   5: v5,
+  6: [
+    // shared photos: memories (gallery), supper photos and activity photos pinned to a calendar day
+    `CREATE TABLE IF NOT EXISTS photos (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       photo_key TEXT NOT NULL,
+       caption TEXT,
+       date TEXT NOT NULL,                 -- the calendar day it belongs to
+       kind TEXT NOT NULL DEFAULT 'memory', -- memory | meal | activity
+       recipe_id TEXT,                     -- for supper photos: what we ate
+       user_id TEXT REFERENCES users(id),
+       slideshow INTEGER NOT NULL DEFAULT 1, -- shows in the background slideshow
+       created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    'CREATE INDEX IF NOT EXISTS idx_photos_date ON photos(date)',
+    // big recipe library (+ new ingredient items with estimated prices)
+    ...SEED_V6,
+  ],
 };

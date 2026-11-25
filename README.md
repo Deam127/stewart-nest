@@ -28,7 +28,20 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
   - a reward goal per person, and Mom or Dad hands the reward out
 - **Madilea countdown** in the header.
 
-**Planning & schedule (latest):**
+**Photos, recipe library & menu builder (latest):**
+- **📸 Photos:**
+  - supper photos (a polaroid-style "supper pinboard"), activity photos and memories, each pinned to a calendar day
+  - a small thumbnail appears on the calendar; tap to enlarge, swipe through, caption, or delete
+  - a **background slideshow** of family photos runs behind the app, which goes slightly see-through (switch it off per device in Photos)
+- **📖 Recipe library:**
+  - about 95 breakfasts, lunches and suppers, including Beef trinchado with chips & rolls
+  - light low-carb Mediterranean-style meals tagged 🥗 Light
+  - our own versions of the cover dishes from *Wat eet ons vanaand?*, with page numbers
+  - search and filter
+  - new ingredient items carry *estimated* prices: update them in Inventory after shopping
+- **🧑‍🍳 Menu builder:** pick breakfast, lunch and supper for every day of a month from the library. Shows the food cost per day and per month, plus a shopping estimate (whole packs, minus cupboard stock) against the grocery and meat budgets.
+
+**Planning & schedule:**
 - **📖 Recipes:** a catalogue of breakfasts, lunches and suppers with ingredients linked to inventory items (pack sizes and prices), a cost per meal, portions and method. Add new recipes and new ingredient items.
 - **🔁 Weekly rotation:** which suppers cycle on which weekday, separately for summer and winter. Monthly menus are built from it.
 - **🗓️ Plan ahead:** build menus months ahead, then pick any date range to see every ingredient needed in packs, minus what's in the cupboard, costed against the budget. One tap turns it into the shopping list.

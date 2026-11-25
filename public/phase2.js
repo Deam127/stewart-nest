@@ -94,6 +94,8 @@ ROUTES.hub = async () => {
       <a href="#fun"><span class="i">🎉</span><strong>Family fun</strong><span class="muted">Ideas & votes</span></a>
       <a href="#madilea"><span class="i">👶</span><strong>${esc(name)}</strong><span class="muted">Countdown, bags & buy list</span></a>
       <a href="#shop/inventory"><span class="i">📦</span><strong>Inventory</strong><span class="muted">Codes, barcodes, photos</span></a>
+      <a href="#gallery"><span class="i">📸</span><strong>Photos</strong><span class="muted">Supper pinboard, activities, memories</span></a>
+      <a href="#builder"><span class="i">🧑‍🍳</span><strong>Menu builder</strong><span class="muted">Pick next month's meals + budget</span></a>
       <a href="#events"><span class="i">📅</span><strong>Events & schedule</strong><span class="muted">Holidays, school, bins, reminders</span></a>
       <a href="#recipes"><span class="i">📖</span><strong>Recipes</strong><span class="muted">Catalogue, ingredients, rotation</span></a>
       <a href="#plan"><span class="i">🗓️</span><strong>Plan ahead</strong><span class="muted">Months of menus → shopping</span></a>

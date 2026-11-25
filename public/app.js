@@ -72,7 +72,7 @@ function renderHeader() {
     $('#baby').title = `${S.settings.baby_full_name || name} — due ${nice(due)}`;
   }
   const r = (location.hash.slice(1).split('/')[0]) || 'calendar';
-  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub', events: 'hub', recipes: 'hub', plan: 'hub' };
+  const navOf = { day: 'calendar', tasks: 'hub', rewards: 'hub', workouts: 'hub', fun: 'hub', madilea: 'hub', more: 'hub', users: 'hub', ratings: 'hub', events: 'hub', recipes: 'hub', plan: 'hub', gallery: 'hub', builder: 'hub' };
   $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.r === (navOf[r] || r)));
 }
 
@@ -193,6 +193,7 @@ async function viewCalendar() {
   const tasks = Object.fromEntries(data.tasks.map((r) => [r.date, r]));
   const wo = Object.fromEntries((data.workouts || []).map((r) => [r.date, r]));
   const evs = by((data.events || []).filter((e) => !e.quiet));
+  const pics = {}; (data.photos || []).forEach((p) => { if (!pics[p.date]) pics[p.date] = p; });
   const hol = Object.fromEntries((data.events || []).filter((e) => e.category === 'holiday').map((e) => [e.date, e.title]));
   const school = new Set((data.events || []).filter((e) => e.category === 'term').map((e) => e.date));
   const EV_ICON = { holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
@@ -211,6 +212,7 @@ async function viewCalendar() {
       ${hol[date] ? `<div class="holname">🇿🇦 ${esc(hol[date])}</div>` : ''}
       ${dayEv.slice(0, 2).map((e) => `<div class="evchip">${e.title.match(/^\p{Extended_Pictographic}/u) ? '' : (EV_ICON[e.category] || '📌') + ' '}${esc(e.title)}</div>`).join('')}${dayEv.length > 2 ? `<div class="evchip">+${dayEv.length - 2} more</div>` : ''}
       ${s ? `<div class="meal ${usingBackup ? 'backup' : ''}">${usingBackup ? '☔ ' + esc(s.backup_name.replace(/^Rain plan: /, '')) : (s.outdoor ? '🔥 ' : '') + esc(s.name)}</div>` : ''}
+      ${pics[date] ? `<img class="ph" src="/api/photos/${pics[date].photo_key}" loading="lazy" alt="">` : ''}
       <div class="marks">
         ${rainy ? '<span class="badge rain">☔ rain?</span>' : ''}
         ${(plans[date] || []).length ? `<span class="badge">📌${plans[date].length}</span>` : ''}

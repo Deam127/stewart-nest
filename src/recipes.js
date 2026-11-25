@@ -57,6 +57,14 @@ export async function recipes({ req, db, path, parts, method, q, me, generateMon
     return json({ ok: true });
   }
 
+  // ---------- the menu for a date range (all meals) ----------
+  if (path === 'menu' && method === 'GET') {
+    const from = q.get('from'), to = q.get('to');
+    if (!isDate(from) || !isDate(to)) return bad('from and to needed');
+    const { results } = await db.prepare('SELECT date, meal, recipe_id, use_backup FROM menu WHERE date BETWEEN ? AND ? ORDER BY date').bind(from, to).all();
+    return json(results);
+  }
+
   // ---------- rotation: which suppers cycle on which weekday ----------
   if (path === 'rotation' && method === 'PUT') {
     const { season, weekday, recipe_ids } = await body(req);
