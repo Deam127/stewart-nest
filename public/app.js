@@ -84,8 +84,9 @@ async function pollNotifications(show = false) {
     const unread = list.filter((n) => !n.is_read);
     $('#bell-n').hidden = !unread.length; $('#bell-n').textContent = unread.length;
     const newest = list[0]?.id || 0;
-    if (S.lastNotif && newest > S.lastNotif && 'Notification' in window && Notification.permission === 'granted') {
-      unread.filter((n) => n.id > S.lastNotif).slice(0, 3).forEach((n) => new Notification('The Stewart Nest', { body: n.text, icon: '/icon.svg' }));
+    if (S.lastNotif && newest > S.lastNotif) {
+      const fresh = unread.filter((n) => n.id > S.lastNotif);
+      if (fresh.length) window.Alerts && Alerts.ping({ body: fresh.length > 1 ? `${fresh.length} new notifications` : fresh[0].text, link: fresh[0].link || '#calendar' });
     }
     S.lastNotif = Math.max(S.lastNotif, newest);
     if (show) {
@@ -499,10 +500,17 @@ async function viewMore() {
     <h1>More</h1>
     <div class="card"><div class="spread"><span>${S.me.emoji} <strong>${esc(S.me.full_name || S.me.name)}</strong></span><button class="btn small ghost" id="logout">Log out</button></div></div>
 
-    <h2>🔔 Notifications</h2>
-    <div class="card"><div class="spread"><span>Pop-up alerts on this device: <strong>${notifState}</strong></span>
-      ${'Notification' in window && Notification.permission === 'default' ? '<button class="btn small" id="notif-on">Turn on</button>' : ''}</div>
-      <div class="muted">The 🔔 at the top always shows new tasks, rain changes, notes and rewards.</div></div>
+    <h2>🔔 Alerts on this device</h2>
+    <div class="card">
+      <label class="row"><input type="checkbox" id="al-sound" ${Alerts.get('sound', '1') === '1' ? 'checked' : ''}> 🔊 Sound for new messages & notifications</label>
+      <div class="row" style="margin-top:6px"><select id="al-tone" style="width:auto">${[['ding', 'Ding'], ['pop', 'Pop'], ['chime', 'Chime'], ['nest', 'Nest tune']].map(([k, l]) => `<option value="${k}" ${Alerts.get('tone', 'ding') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <input type="range" id="al-vol" min="0.1" max="1" step="0.1" value="${Alerts.get('volume', '0.5')}" class="grow" title="Volume"></div>
+      <label class="row" style="margin-top:8px"><input type="checkbox" id="al-vib" ${Alerts.get('vibrate', '1') === '1' ? 'checked' : ''}> 📳 Vibrate${navigator.vibrate ? '' : ' <span class="muted">(not supported on this device, e.g. iPhone)</span>'}</label>
+      <div class="row wrap" style="margin-top:8px"><button class="btn small ghost" id="al-test">▶ Test</button>
+        ${'Notification' in window && Notification.permission !== 'granted' ? `<button class="btn small" id="notif-on">Allow pop-up notifications</button>` : ''}</div>
+      <p class="muted">Pop-up notifications: <strong>${notifState}</strong>. While the Nest is open you get the sound and vibration; when it's in the background, a phone notification.
+        Tip: on phones, "Add to Home screen" and keep it open in the background for the best alerts.</p>
+    </div>
 
     <div data-perm="edit_menu"><h2>🍽️ Menu</h2>
     <div class="card">
@@ -538,6 +546,11 @@ async function viewMore() {
 
   $('#logout').onclick = async () => { await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
   $('#notif-on') && ($('#notif-on').onclick = async () => { await Notification.requestPermission(); viewMore(); });
+  $('#al-sound').onchange = (e) => Alerts.set('sound', e.target.checked ? '1' : '0');
+  $('#al-vib').onchange = (e) => { Alerts.set('vibrate', e.target.checked ? '1' : '0'); if (e.target.checked) Alerts.buzz(); };
+  $('#al-tone').onchange = (e) => { Alerts.set('tone', e.target.value); Alerts.play(e.target.value); };
+  $('#al-vol').onchange = (e) => { Alerts.set('volume', e.target.value); Alerts.play(); };
+  $('#al-test').onclick = () => { Alerts.unlock(); Alerts.play(); Alerts.buzz(); };
   $('#g-go').onclick = async () => {
     const ym = $('#g-month').value; if (!ym) return;
     if (!confirm(`Rebuild the whole menu for ${ym}? Meal swaps for that month will be lost.`)) return;

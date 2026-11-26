@@ -259,7 +259,10 @@ async function refresh(full = false) {
     const d = full ? await api('chat') : await api(`chat?after=${C7.last}&since=${first}`);
     if (full) C7.msgs = d.messages;
     else {
-      d.messages.forEach((m) => { if (!C7.msgs.some((x) => x.id === m.id)) C7.msgs.push(m); });
+      const fresh = d.messages.filter((m) => !C7.msgs.some((x) => x.id === m.id));
+      fresh.forEach((m) => C7.msgs.push(m));
+      const fromOthers = fresh.filter((m) => m.user_id !== S.me.id);
+      if (fromOthers.length && window.Alerts) Alerts.ping({ title: `💬 ${fromOthers[0].name}`, body: fromOthers[0].text || (fromOthers[0].photo_key ? '📷 Photo' : '📌 Shared something'), link: '#chat', quiet: true });
       // deletions only show up on a full reload; fine for a family chat
     }
     C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3;

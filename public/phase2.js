@@ -109,12 +109,14 @@ async function pollBadges() {
     const b = await api('badges');
     const onChat = location.hash.startsWith('#chat');
     $('#chat-n').hidden = onChat || !b.chat; $('#chat-n').textContent = b.chat;
-    if (!onChat && b.chat > (P2.lastChatBadge || 0) && document.hidden && 'Notification' in window && Notification.permission === 'granted')
-      new Notification('The Stewart Nest', { body: `💬 ${b.chat} new message${b.chat > 1 ? 's' : ''} in the family chat`, icon: '/icon.svg' });
+    // new chat messages while you're elsewhere (or the app is in the background): sound / vibrate / phone notification
+    if (b.chat > (P2.lastChatBadge || 0) && (!onChat || document.hidden) && P2.lastChatBadge !== undefined)
+      window.Alerts && Alerts.ping({ title: '💬 Family chat', body: `${b.chat} new message${b.chat > 1 ? 's' : ''}`, link: '#chat' });
     P2.lastChatBadge = b.chat;
+    P2.badgeReady = true;
   } catch { /* ignore */ }
 }
-setInterval(pollBadges, 15000);
+setInterval(pollBadges, 10000);
 window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#chat')) { clearInterval(P2.chatTimer); P2.chatTimer = null; } pollBadges(); });
 setTimeout(pollBadges, 1500);
 
