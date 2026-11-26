@@ -62,9 +62,9 @@ export async function runReminders(db) {
     for (const [kind, text] of kinds) {
       const r = await db.prepare('INSERT OR IGNORE INTO reminder_log (event_id, date, kind) VALUES (?, ?, ?)').bind(o.id, o.date, kind).run();
       if (!r.meta.changes) continue;
-      if (!to.length) continue;
       let to = o.who ? o.who.split(',').filter((u) => family.includes(u)) : family;
       if (o.layer) to = to.filter((u) => prefs[u]?.[o.layer]); // only people who switched that calendar on
+      if (!to.length) continue;
       // a child's reminders also go to the grown-ups
       const grownUps = (await db.prepare('SELECT id FROM users WHERE active = 1 AND (is_parent = 1 OR is_admin = 1)').all()).results.map((u) => u.id);
       const hasChild = !o.layer && to.some((u) => !grownUps.includes(u));

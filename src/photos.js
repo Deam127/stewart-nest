@@ -16,7 +16,7 @@ export async function photos({ req, env, db, path, parts, method, q, me, others 
   }
   if (path === 'gallery' && method === 'POST') {
     const b = await body(req);
-    if (!b.photo_key) return bad('Upload a photo first');
+    if (typeof b.photo_key !== 'string' || !b.photo_key.startsWith('p/')) return bad('Upload a photo first'); // photos only, not voice notes or videos
     const date = isDate(b.date) ? b.date : saToday();
     const kind = ['memory', 'meal', 'activity'].includes(b.kind) ? b.kind : 'memory';
     let recipe = b.recipe_id || null;

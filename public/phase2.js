@@ -44,20 +44,35 @@ function upBar(text, pct) {
   $('.spin', el).style.display = pct >= 100 ? 'none' : '';
 }
 function upDone() { Up.n = 0; Up.done = 0; Up.total = 0; const el = $('#upbar'); if (el) el.hidden = true; }
+// send a file to storage with a progress bar; resolves to its storage key
+function postMedia(blob, type, label) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/photos'); x.setRequestHeader('content-type', type); x.withCredentials = true;
+    x.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round((e.loaded / e.total) * 95); upBar(`${label()}… ${p}%`, p); } };
+    x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch { /* */ } x.status < 300 ? resolve(d.key) : reject(new Error(d.error || 'Upload failed')); };
+    x.onerror = () => reject(new Error('Upload failed: check your connection and try again'));
+    x.send(blob);
+  });
+}
+// a voice note or video clip, as recorded or picked (no resizing)
+const MEDIA_MAX_MB = { audio: 10, video: 50 };
+async function uploadMedia(blob, kind) {
+  const what = kind === 'audio' ? 'voice note' : 'video';
+  if (blob.size > MEDIA_MAX_MB[kind] * 1024 * 1024) throw new Error(`That ${what} is too big (max ${MEDIA_MAX_MB[kind]} MB). Try a shorter one.`);
+  const type = (blob.type || (kind === 'audio' ? 'audio/webm' : 'video/mp4')).split(';')[0];
+  const label = () => `Sending ${what}`;
+  upBar(`${label()}…`, 3);
+  try { const key = await postMedia(blob, type, label); upBar('Sent ✔', 100); setTimeout(upDone, 900); return key; }
+  catch (e) { upDone(); throw e; }
+}
 async function uploadPhoto(file) {
   if (Up.total) Up.n = Up.total; else Up.n++;
   const label = () => `Uploading photo${Up.n > 1 ? ` ${Up.done + 1} of ${Up.n}` : ''}`;
   upBar(`${label()}… getting it ready`, 3);
   try {
     const blob = await resizeImage(file);
-    const key = await new Promise((resolve, reject) => {
-      const x = new XMLHttpRequest();
-      x.open('POST', '/api/photos'); x.setRequestHeader('content-type', 'image/jpeg'); x.withCredentials = true;
-      x.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round((e.loaded / e.total) * 95); upBar(`${label()}… ${p}%`, p); } };
-      x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch { /* */ } x.status < 300 ? resolve(d.key) : reject(new Error(d.error || 'Upload failed')); };
-      x.onerror = () => reject(new Error('Upload failed: check your connection and try again'));
-      x.send(blob);
-    });
+    const key = await postMedia(blob, 'image/jpeg', label);
     Up.done++;
     if (Up.done >= Up.n) { upBar('Uploaded ✔', 100); setTimeout(upDone, 900); } else upBar(`${label()}…`, 0);
     return key;
@@ -109,6 +124,8 @@ async function pollBadges() {
     const b = await api('badges');
     const onChat = location.hash.startsWith('#chat');
     $('#chat-n').hidden = onChat || !b.chat; $('#chat-n').textContent = b.chat;
+    Alerts.badge((b.chat || 0) + (b.notifications || 0));
+    if (!P2.pushSynced) { P2.pushSynced = true; Alerts.pushSync(); } // link this phone to whoever is logged in
     // new chat message while you're elsewhere (or the app is in the background): one alert per message
     if (window.Alerts && b.latest) {
       if (!Alerts.chatSeen()) Alerts.markChat(b.latest.id); // first run on this phone: don't alert for old messages
@@ -566,8 +583,11 @@ async function shopList() {
   };
   $('#sl-finish').onclick = async () => {
     if (!confirm('Finished shopping? Everything ticked gets added to the cupboard counts, and the prices you typed are saved.')) return;
-    const r = await api(`trips/${d.trip.id}/finish`, { body: { shop: $('#sl-shop').value } });
-    toast(`Shop done: ${R(r.spent)}`); P2.keep = new Set(); location.hash = '#shop/history';
+    const btn = $('#sl-finish'); btn.disabled = true;
+    try {
+      const r = await api(`trips/${d.trip.id}/finish`, { body: { shop: $('#sl-shop').value } });
+      toast(`Shop done: ${R(r.spent)}`); P2.keep = new Set(); location.hash = '#shop/history';
+    } catch (e) { btn.disabled = false; toast(e.message); }
   };
   $('#sl-del').onclick = async () => { if (confirm('Delete this shopping list?')) { await del('trips/' + d.trip.id); reload(); } };
   wireMenuRange(reload);

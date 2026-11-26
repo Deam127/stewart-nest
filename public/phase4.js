@@ -251,7 +251,7 @@ function rotationEditor(cat) {
       const ids = cat.rotation.filter((x) => x.season === season && x.weekday === i + 1).map((x) => x.recipe_id);
       return `<div class="card"><strong>${w}</strong>
         <div class="chips" style="margin:6px 0">${ids.map((id) => `<span class="chip-x">${esc(name(id))}<button data-rotx="${i + 1}|${id}">✕</button></span>`).join('') || '<span class="muted">Nothing: any supper may be picked</span>'}</div>
-        <select data-rota="${i + 1}"><option value="">+ Add a supper to ${w}…</option>${sup.filter((r) => !ids.includes(r.id)).map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>`;
+        <select data-rota="${i + 1}" data-search><option value="">+ Add a supper to ${w}…</option>${sup.filter((r) => !ids.includes(r.id)).map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>`;
     }).join('')}`;
 }
 function wireRotation(cat) {

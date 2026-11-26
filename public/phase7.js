@@ -28,17 +28,27 @@ function bubble(m, prev) {
   const d = new Date(m.created_at + 'Z');
   const dayStr = (x) => new Date(x.created_at + 'Z').toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' });
   const react = C7.reactions[m.id] || {};
-  const chips = Object.entries(react).map(([e, who]) => `<button class="rx ${who.some((w) => w.user_id === S.me.id) ? 'mine' : ''}" data-rx="${m.id}" data-e="${e}" title="${esc(who.map((w) => w.name).join(', '))}">${e}${who.length > 1 ? ' ' + who.length : ''}</button>`).join('');
+  const chips = Object.entries(react).map(([e, who]) => `<button class="rx ${who.some((w) => w.user_id === S.me.id) ? 'mine' : ''}" data-rx="${m.id}" title="${esc(who.map((w) => w.name).join(', '))}">${esc(e)}${who.length > 1 ? ' ' + who.length : ''}</button>`).join('');
   return `${!prev || dayStr(m) !== dayStr(prev) ? `<div class="day-sep">${dayStr(m)}</div>` : ''}
     <div class="msg ${mine ? 'mine' : ''} ${C7.sel && C7.sel.has(m.id) ? 'picked' : ''}" id="m-${m.id}" data-mid="${m.id}">
       ${mine ? '' : `<div class="who" style="color:${m.colour}">${m.emoji} ${esc(m.name)}</div>`}
-      ${m.reply_to ? `<div class="quote" data-goto="${m.reply_to}"><strong>${esc(m.reply_name || '')}</strong>${m.reply_name ? '<br>' : ''}${m.reply_deleted || !m.reply_name ? '<i>message deleted</i>' : m.reply_photo && !m.reply_text ? '📷 Photo' : esc((m.reply_text || '').slice(0, 90))}</div>` : ''}
+      ${m.reply_to ? `<div class="quote" data-goto="${m.reply_to}"><strong>${esc(m.reply_name || '')}</strong>${m.reply_name ? '<br>' : ''}${m.reply_deleted || !m.reply_name ? '<i>message deleted</i>' : m.reply_photo && !m.reply_text ? mediaWord(m.reply_photo) : esc((m.reply_text || '').slice(0, 90))}</div>` : ''}
       ${m.deleted ? '<i class="muted">🚫 message deleted</i>' : `${m.text ? esc(m.text).replace(/\n/g, '<br>') : ''}
-      ${m.photo_key ? `<img src="${photoUrl(m.photo_key)}" loading="lazy" alt="photo" data-big="${m.photo_key}">` : ''}
+      ${m.photo_key ? mediaHtml(m.photo_key) : ''}
       ${m.card ? cardHtml(m) : ''}`}
       <div class="time">${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}${mine && !m.deleted ? ' ' + ticks(m) : ''}</div>
       ${chips ? `<div class="rxs">${chips}</div>` : ''}
     </div>`;
+}
+
+// a chat attachment: photo (p/…), voice note (a/…) or video clip (v/…)
+const mediaKind = (k) => ({ a: 'audio', v: 'video' }[(k || '')[0]] || 'photo');
+const mediaWord = (k) => ({ audio: '🎤 Voice note', video: '🎥 Video', photo: '📷 Photo' }[mediaKind(k)]);
+function mediaHtml(k) {
+  const src = esc(photoUrl(k));
+  if (mediaKind(k) === 'audio') return `<audio class="voice" controls preload="metadata" src="${src}"></audio>`;
+  if (mediaKind(k) === 'video') return `<video class="clip" controls playsinline preload="metadata" src="${src}#t=0.1"></video>`;
+  return `<img src="${src}" loading="lazy" alt="photo" data-big="${esc(k)}">`;
 }
 
 const CARD_ICON = { task: '🧹', supper: '🍽️', event: '📅', recipe: '📖', day: '🗓️', poll: '📊' };
@@ -48,17 +58,21 @@ function cardHtml(m) {
     const votes = C7.votes[m.id] || {};
     const total = Object.values(votes).reduce((s, v) => s + v.length, 0);
     const best = Math.max(0, ...Object.values(votes).map((v) => v.length));
-    return `<div class="card-msg poll"><div><strong>📊 ${esc(c.q)}</strong>${c.date ? `<div class="muted">${short(c.date)}</div>` : ''}</div>
+    const sub = c.task ? `🧹 ${esc(c.task.title)}${isYmd(c.date) ? ' · due ' + short(c.date) : ''}` : c.event ? `📅 ${esc(c.event.title)}` : isYmd(c.date) ? short(c.date) : '';
+    return `<div class="card-msg poll"><div><strong>📊 ${esc(c.q)}</strong>${sub ? `<div class="muted">${sub}</div>` : ''}</div>
       ${c.options.map((o, i) => {
         const who = votes[i] || []; const pct = total ? Math.round((who.length / total) * 100) : 0;
         const mine = who.some((w) => w.user_id === S.me.id);
         return `<button class="opt ${mine ? 'mine' : ''}" data-vote="${m.id}" data-opt="${i}"><span class="bar2" style="width:${pct}%"></span>
           <span class="lbl">${mine ? '✔ ' : ''}${esc(o.label)}</span><span class="cnt">${who.map((w) => w.emoji).join('')} ${who.length || ''}</span></button>
-          ${c.date && o.recipe_id && who.length && who.length === best && can('edit_menu') ? `<button class="btn small" data-setsup="${o.recipe_id}" data-date="${c.date}">✅ Make "${esc(o.label)}" supper for ${short(c.date)}</button>` : ''}`;
+          ${isYmd(c.date) && o.recipe_id && who.length && who.length === best && can('edit_menu') ? `<button class="btn small" data-setsup="${esc(o.recipe_id)}" data-date="${c.date}">✅ Make "${esc(o.label)}" supper for ${short(c.date)}</button>` : ''}
+          ${c.task && o.user_id && who.length && who.length === best && can('assign_tasks') ? `<button class="btn small" data-givetask="${m.id}" data-opt="${i}">🧹 Give "${esc(c.task.title)}" to ${esc(o.label)}</button>` : ''}
+          ${c.event && isYmd(o.date) && who.length && who.length === best && can('edit_calendar') ? `<button class="btn small" data-addevent="${m.id}" data-opt="${i}">📅 Put "${esc(c.event.title)}" on ${esc(o.label)}</button>` : ''}`;
       }).join('')}
       <div class="muted">${total} vote${total === 1 ? '' : 's'} · tap to vote</div></div>`;
   }
-  return `<a class="card-msg" href="${esc(c.link || '#calendar')}"><span class="ci">${CARD_ICON[c.type] || '📌'}</span>
+  const link = typeof c.link === 'string' && /^#[\w\/.\-]*$/.test(c.link) ? c.link : '#calendar'; // only pages inside the Nest
+  return `<a class="card-msg" href="${esc(link)}"><span class="ci">${CARD_ICON[c.type] || '📌'}</span>
     <span class="grow"><strong>${esc(c.title || '')}</strong>${c.sub ? `<br><span class="muted">${esc(c.sub)}</span>` : ''}</span><span class="go">Open ›</span></a>`;
 }
 
@@ -71,7 +85,7 @@ function drawAll() {
 }
 
 function wireBubbles() {
-  $$('[data-rx]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); react(Number(b.dataset.rx), b.dataset.e); });
+  $$('[data-rx]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); whoReacted(Number(b.dataset.rx)); });
   $$('.card-msg a, a.card-msg').forEach((a) => a.addEventListener('click', (e) => e.stopPropagation()));
   $$('[data-vote]').forEach((b) => b.onclick = async (e) => {
     e.stopPropagation();
@@ -82,6 +96,25 @@ function wireBubbles() {
     if (had === undefined || Number(had) !== opt) (v[opt] = v[opt] || []).push({ user_id: S.me.id, emoji: S.me.emoji, name: S.me.name });
     drawAll();
     try { await api(`chat/${id}/vote`, { body: { opt } }); } catch (err) { toast(err.message); }
+  });
+  // winning task / schedule option → a grown-up turns it into a real task or calendar event
+  $$('[data-givetask]').forEach((b) => b.onclick = async (e) => {
+    e.stopPropagation();
+    const m = C7.msgs.find((x) => x.id === Number(b.dataset.givetask)); const c = m?.card; const o = c?.options?.[Number(b.dataset.opt)];
+    if (!c?.task || !o?.user_id) return;
+    try {
+      await api('tasks', { body: { title: c.task.title, area: c.task.area, assignee: o.user_id, due_date: isYmd(c.date) ? c.date : todayStr() } });
+      toast('Task given ✅'); await sendMsg(null, `🧹 ${o.label} is doing: ${c.task.title}`);
+    } catch (err) { toast(err.message); }
+  });
+  $$('[data-addevent]').forEach((b) => b.onclick = async (e) => {
+    e.stopPropagation();
+    const m = C7.msgs.find((x) => x.id === Number(b.dataset.addevent)); const c = m?.card; const o = c?.options?.[Number(b.dataset.opt)];
+    if (!c?.event || !isYmd(o?.date)) return;
+    try {
+      await api('events', { body: { title: c.event.title, category: 'family', start_date: o.date, start_time: isHm(o.time) ? o.time : null, remind: 'day_before' } });
+      toast('On the calendar 📅'); await sendMsg(null, `📅 ${c.event.title} is on ${o.label}`);
+    } catch (err) { toast(err.message); }
   });
   $$('[data-setsup]').forEach((b) => b.onclick = async (e) => {
     e.stopPropagation();
@@ -122,7 +155,7 @@ function wireBubbles() {
     let t;
     el.oncontextmenu = (e) => { e.preventDefault(); actions(Number(el.dataset.mid)); };
     let x0 = null, y0 = null, dx = 0;
-    el.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; t = setTimeout(() => actions(Number(el.dataset.mid)), 500); }, { passive: true });
+    el.addEventListener('touchstart', (e) => { if (e.target.closest('audio, video')) return; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; t = setTimeout(() => actions(Number(el.dataset.mid)), 500); }, { passive: true });
     el.addEventListener('touchmove', (e) => {
       clearTimeout(t);
       if (x0 === null) return;
@@ -136,7 +169,7 @@ function wireBubbles() {
       x0 = null;
     });
     // desktop: click opens the menu (phones use press-and-hold / swipe)
-    el.onclick = () => { if (!('ontouchstart' in window)) actions(Number(el.dataset.mid)); };
+    el.onclick = (e) => { if (e.target.closest('audio, video')) return; if (!('ontouchstart' in window)) actions(Number(el.dataset.mid)); };
   });
 }
 
@@ -146,15 +179,16 @@ function actions(id) {
   const menu = document.createElement('div');
   menu.className = 'msg-menu';
   menu.innerHTML = `<div class="quick">${QUICK.map((e) => `<button data-q="${e}">${e}</button>`).join('')}<button data-more title="More emoji">＋</button></div>
-    <div class="acts"><button data-reply>↩️ Reply</button>${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete for everyone</button>' : ''}${S.me.is_admin ? '<button data-sel>☑️ Select</button>' : ''}<button data-close>✕</button></div>`;
+    <div class="acts"><button data-reply>↩️ Reply</button>${Object.keys(C7.reactions[id] || {}).length ? '<button data-who>👀 Reactions</button>' : ''}${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete for everyone</button>' : ''}${S.me.is_admin ? '<button data-sel>☑️ Select</button>' : ''}<button data-close>✕</button></div>`;
   document.body.appendChild(menu);
   const el = $('#m-' + id); const r = el.getBoundingClientRect();
   menu.style.top = Math.max(60, Math.min(window.innerHeight - 140, r.top - 100)) + 'px';
   $$('[data-q]', menu).forEach((b) => b.onclick = () => { menu.remove(); react(id, b.dataset.q); });
   $('[data-more]', menu).onclick = () => { menu.remove(); emojiPicker((e) => react(id, e)); };
   $('[data-reply]', menu).onclick = () => { menu.remove(); startReply(m); };
+  $('[data-who]', menu) && ($('[data-who]', menu).onclick = () => { menu.remove(); whoReacted(id); });
   $('[data-copy]', menu) && ($('[data-copy]', menu).onclick = async () => { menu.remove(); try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { /* no clipboard */ } });
-  $('[data-delm]', menu) && ($('[data-delm]', menu).onclick = async () => { menu.remove(); if (!confirm(`Delete this ${m.photo_key ? 'photo' : 'message'} for everyone?`)) return; await deleteForAll([id]); });
+  $('[data-delm]', menu) && ($('[data-delm]', menu).onclick = async () => { menu.remove(); if (!confirm(`Delete this ${m.photo_key ? { audio: 'voice note', video: 'video', photo: 'photo' }[mediaKind(m.photo_key)] : 'message'} for everyone?`)) return; await deleteForAll([id]); });
   $('[data-sel]', menu) && ($('[data-sel]', menu).onclick = () => { menu.remove(); startSelect(id); });
   $('[data-close]', menu).onclick = () => menu.remove();
   setTimeout(() => document.addEventListener('click', function off(e) { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', off); } }), 0);
@@ -169,10 +203,24 @@ async function react(id, emoji) {
   try { await api(`chat/${id}/react`, { body: { emoji } }); } catch (e) { toast(e.message); }
 }
 
+// who reacted to a message, like WhatsApp: everyone with their emoji; tap your own to take it back
+function whoReacted(id) {
+  const list = Object.entries(C7.reactions[id] || {}).flatMap(([e, who]) => who.map((w) => ({ e, ...w })));
+  if (!list.length) return;
+  const counts = Object.entries(C7.reactions[id]).map(([e, who]) => `${esc(e)} ${who.length}`).join(' · ');
+  const s = sheet(`<div class="spread"><h2 style="margin:0">Reactions</h2><button class="btn small ghost" data-close>Close</button></div>
+    <div class="muted" style="margin:4px 0 8px">${list.length} reaction${list.length > 1 ? 's' : ''} · ${counts}</div>
+    <div class="card">${list.map((r) => { const u = user(r.user_id); const mine = r.user_id === S.me.id; return `<div class="item rx-who" ${mine ? `data-unrx="${esc(r.e)}"` : ''}>
+      <div class="thumb">${u.emoji || '🙂'}</div><div class="grow"><div class="nm">${esc(mine ? 'You' : r.name || u.name)}</div>${mine ? '<div class="muted">Tap to remove</div>' : ''}</div>
+      <div style="font-size:1.6rem">${esc(r.e)}</div></div>`; }).join('')}</div>`);
+  $('[data-close]', s).onclick = () => s.remove();
+  $$('[data-unrx]', s).forEach((el) => el.onclick = () => { s.remove(); react(id, el.dataset.unrx); });
+}
+
 function startReply(m) {
   C7.replyTo = m;
   $('#c-reply').hidden = false;
-  $('#c-reply').innerHTML = `<div class="grow"><strong>↩️ Replying to ${esc(m.name)}</strong><br><span class="muted">${m.text ? esc(m.text.slice(0, 80)) : '📷 Photo'}</span></div><button class="btn small ghost" id="c-rx">✕</button>`;
+  $('#c-reply').innerHTML = `<div class="grow"><strong>↩️ Replying to ${esc(m.name)}</strong><br><span class="muted">${m.text ? esc(m.text.slice(0, 80)) : m.photo_key ? mediaWord(m.photo_key) : ''}</span></div><button class="btn small ghost" id="c-rx">✕</button>`;
   $('#c-rx').onclick = () => { C7.replyTo = null; $('#c-reply').hidden = true; };
   $('#c-text').focus();
 }
@@ -198,9 +246,10 @@ function attachMenu() {
     <div class="hub" style="margin-top:10px">
       <a href="#" data-src="camera"><span class="i">📷</span><strong>Camera</strong><span class="muted">Take a photo now</span></a>
       <a href="#" data-src="gallery"><span class="i">🖼️</span><strong>Phone gallery</strong><span class="muted">Pick one or more</span></a>
+      <a href="#" data-src="video"><span class="i">🎥</span><strong>Video</strong><span class="muted">Record or pick a short clip (max 50 MB)</span></a>
       <a href="#" data-src="nest"><span class="i">📸</span><strong>Family photos</strong><span class="muted">From the Nest's gallery</span></a>
       <a href="#" data-src="share"><span class="i">📌</span><strong>Share from the Nest</strong><span class="muted">A task, supper, event or recipe</span></a>
-      <a href="#" data-src="poll"><span class="i">📊</span><strong>Ask the family</strong><span class="muted">Quick poll, e.g. what's for supper?</span></a>
+      <a href="#" data-src="poll"><span class="i">📊</span><strong>Ask the family</strong><span class="muted">Poll: supper, who does a task, when suits everyone…</span></a>
     </div>`);
   $('[data-close]', s).onclick = () => s.remove();
   $$('[data-src]', s).forEach((a) => a.onclick = async (e) => {
@@ -208,6 +257,7 @@ function attachMenu() {
     if (a.dataset.src === 'nest') return nestPicker();
     if (a.dataset.src === 'share') return sharePicker();
     if (a.dataset.src === 'poll') return pollMaker();
+    if (a.dataset.src === 'video') return pickVideo();
     const files = await new Promise((res) => {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = 'image/*';
@@ -249,10 +299,12 @@ async function nestPicker() {
   if (!list.length) return toast('No family photos yet. Add some in Family → Photos.');
   const picked = new Set();
   const s = sheet(`<div class="spread"><h2 style="margin:0">Family photos</h2><button class="btn small ghost" data-close>Close</button></div>
+    <input type="search" id="np-find" placeholder="🔍 Search captions, suppers, who, month…" style="margin:6px 0">
     <p class="muted">Tap photos to pick them, then send.</p>
-    <div class="pins">${list.map((p) => `<div class="pin" data-np="${p.photo_key}"><img src="${photoUrl(p.photo_key)}" loading="lazy" alt=""><span>${esc(p.caption || p.recipe_name || short(p.date))}</span></div>`).join('')}</div>
+    <div class="pins" id="np-pins">${list.map((p) => `<div class="pin" data-np="${esc(p.photo_key)}" data-find="${esc([p.caption, p.recipe_name, p.name, p.kind === 'meal' ? 'supper' : p.kind, p.date, nice(p.date, { month: 'long', year: 'numeric' })].filter(Boolean).join(' '))}"><img src="${photoUrl(p.photo_key)}" loading="lazy" alt=""><span>${esc(p.caption || p.recipe_name || short(p.date))}</span></div>`).join('')}</div>
     <button class="btn" style="width:100%;margin-top:10px;position:sticky;bottom:0" id="np-send" disabled>Send</button>`);
   $('[data-close]', s).onclick = () => s.remove();
+  filterRows($('#np-find', s), $('#np-pins', s), '.pin');
   $$('[data-np]', s).forEach((el) => el.onclick = () => {
     const k = el.dataset.np; picked.has(k) ? picked.delete(k) : picked.add(k);
     el.classList.toggle('picked', picked.has(k));
@@ -357,6 +409,7 @@ ROUTES.chat = async () => {
           <input type="text" id="c-text" placeholder="Message" autocomplete="off">
           <button id="c-att" title="Attach">📎</button>
           <button id="c-cam" title="Camera">📷</button>
+          <button id="c-mic" title="Voice note">🎤</button>
         </div>
         <button class="btn send-round" id="c-send" title="Send">➤</button></div></div>`;
   document.body.classList.add('chat-mode');
@@ -368,6 +421,7 @@ ROUTES.chat = async () => {
   $('#c-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing && !e.repeat) { e.preventDefault(); sendMsg(); } };
   $('#c-select') && ($('#c-select').onclick = () => startSelect());
   $('#c-att').onclick = attachMenu;
+  $('#c-mic').onclick = recordVoice;
   $('#c-cam').onclick = async () => { const f = await pickPhotos(true); if (f.length) photoPreview(f); };
   $('#c-emo').onclick = () => {
     const inp = $('#c-text');
@@ -386,6 +440,7 @@ async function sharePicker(tab = 'supper') {
   const today = todayStr();
   const s = sheet(`<div class="spread"><h2 style="margin:0">📌 Share from the Nest</h2><button class="btn small ghost" data-close>Close</button></div>
     <div class="tabs" style="margin-top:8px">${[['supper', '🍽️ Supper'], ['task', '🧹 Task'], ['event', '📅 Event'], ['recipe', '📖 Recipe']].map(([k, l]) => `<a href="#" data-st="${k}" class="${tab === k ? 'on' : ''}">${l}</a>`).join('')}</div>
+    ${tab === 'recipe' ? '' : `<input type="search" id="sh-find" placeholder="🔍 Search ${{ supper: 'suppers (next 4 weeks)', task: 'tasks or people', event: 'events (next 3 months)' }[tab]}…" style="margin-top:8px">`}
     <div id="sh-body"><div class="empty">Loading…</div></div>
     <label class="f">Add a message (optional)</label><input type="text" id="sh-text" placeholder="e.g. Is this OK for tonight?">`);
   $('[data-close]', s).onclick = () => s.remove();
@@ -393,10 +448,13 @@ async function sharePicker(tab = 'supper') {
   const send = async (card) => { const t = $('#sh-text', s).value.trim(); s.remove(); await sendMsg(null, t, card); };
   const body = $('#sh-body', s);
   if (tab === 'supper') {
-    const days = Array.from({ length: 8 }, (_, i) => addDays(today, i));
-    const menus = await Promise.all(days.map((d) => api('day?date=' + d)));
+    const days = Array.from({ length: 28 }, (_, i) => addDays(today, i));
+    // one call for the whole range instead of one per day
+    const rows = await api(`menu?from=${days[0]}&to=${days[days.length - 1]}`);
+    const names = Object.fromEntries((await api('recipes')).map((r) => [r.id, r]));
+    const supperOn = (d) => { const m = rows.find((x) => x.date === d && x.meal === 's'); const r = m && names[m.recipe_id]; return r ? { name: r.name, use_backup: m.use_backup, backup_name: m.use_backup && names[r.rain_backup]?.name } : null; };
     body.innerHTML = `<div class="card">${days.map((d, i) => {
-      const sup = menus[i].menu.find((m) => m.meal === 's');
+      const sup = supperOn(d);
       const name = sup ? (sup.use_backup && sup.backup_name ? sup.backup_name : sup.name) : 'Nothing planned';
       return `<div class="item" data-sd="${d}" data-sn="${esc(name)}"><div class="thumb">🍽️</div><div class="grow"><div class="nm">${esc(name)}</div><div class="muted">${i === 0 ? 'Tonight' : i === 1 ? 'Tomorrow' : nice(d)}</div></div></div>`;
     }).join('')}</div>`;
@@ -410,8 +468,8 @@ async function sharePicker(tab = 'supper') {
     $$('[data-tk]', body).forEach((el) => el.onclick = () => { const x = open.find((y) => y.id == el.dataset.tk); send({ type: 'task', title: x.title, sub: `For ${x.assignee_name} · ${x.area}${x.late_days ? ` · ${x.late_days} day${x.late_days > 1 ? 's' : ''} late` : ''}`, link: x.assignee === S.me.id ? '#today' : '#tasks' }); });
   }
   if (tab === 'event') {
-    const ev = (await api(`events?from=${today}&to=${addDays(today, 60)}`)).occurrences.filter((o) => !o.quiet && o.category !== 'term' && (!o.layer || (S.me.prefs && S.me.prefs[o.layer])));
-    body.innerHTML = `<div class="card">${ev.slice(0, 40).map((o, i) => `<div class="item" data-ev="${i}"><div class="thumb">📅</div><div class="grow"><div class="nm">${esc(o.title)}</div><div class="muted">${nice(o.date)}${o.start_time ? ' · ' + o.start_time : ''}</div></div></div>`).join('') || '<div class="empty">Nothing coming up</div>'}</div>`;
+    const ev = (await api(`events?from=${today}&to=${addDays(today, 90)}`)).occurrences.filter((o) => !o.quiet && o.category !== 'term' && (!o.layer || (S.me.prefs && S.me.prefs[o.layer])));
+    body.innerHTML = `<div class="card">${ev.slice(0, 150).map((o, i) => `<div class="item" data-ev="${i}"><div class="thumb">📅</div><div class="grow"><div class="nm">${esc(o.title)}</div><div class="muted">${nice(o.date)}${o.start_time ? ' · ' + o.start_time : ''}</div></div></div>`).join('') || '<div class="empty">Nothing coming up</div>'}</div>`;
     $$('[data-ev]', body).forEach((el) => el.onclick = () => { const o = ev[el.dataset.ev]; send({ type: 'event', title: o.title, sub: nice(o.date) + (o.start_time ? ' · ' + o.start_time : ''), link: '#day/' + o.date }); });
   }
   if (tab === 'recipe') {
@@ -424,20 +482,25 @@ async function sharePicker(tab = 'supper') {
     };
     $('#sh-q', body).oninput = (e) => draw(e.target.value); draw();
   }
+  if ($('#sh-find', s)) { filterRows($('#sh-find', s), body, '.item'); $('#sh-find', s).focus(); }
 }
 
 // ---------- quick poll ----------
-async function pollMaker() {
+const isYmd = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+const isHm = (v) => /^\d\d:\d\d$/.test(v || '');
+// Ask the family: supper (winner becomes supper), task (winner gets the task) or schedule (winner goes on the calendar), or anything else
+async function pollMaker(kind = 'supper') {
   const today = todayStr();
-  const cat = await api('catalog');
-  const sup = cat.recipes.filter((r) => r.meal === 's' && r.active && !r.name.startsWith('Rain plan:')).sort((a, b) => a.name.localeCompare(b.name));
+  const KINDS = [['supper', '🍽️ Supper'], ['task', '🧹 Task'], ['schedule', '📅 Schedule'], ['other', '💬 Anything']];
+  const Q = { supper: 'What should we have for supper?', task: 'Who will do this?', schedule: 'When suits everyone?', other: '' };
   const s = sheet(`<div class="spread"><h2 style="margin:0">📊 Ask the family</h2><button class="btn small ghost" data-close>Close</button></div>
-    <label class="f">Question</label><input type="text" id="pl-q" value="What should we have for supper?">
-    <label class="f">For which day? (lets a grown-up set the winning supper)</label><input type="date" id="pl-d" value="${today}">
-    <label class="f">Options (2–6): pick suppers or type your own</label>
+    <div class="tabs" style="margin-top:8px">${KINDS.map(([k, l]) => `<a href="#" data-pk="${k}" class="${kind === k ? 'on' : ''}">${l}</a>`).join('')}</div>
+    <label class="f">Question</label><input type="text" id="pl-q" value="${esc(Q[kind])}" placeholder="e.g. Movie or games tonight?">
+    <div id="pl-extra"></div>
+    <label class="f">Options (2–6)</label>
     <div id="pl-opts"></div>
-    <div class="row" style="margin-top:6px"><select id="pl-pick" class="grow"><option value="">+ Add a supper…</option>${sup.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>
-    <div class="row" style="margin-top:6px"><input type="text" id="pl-own" placeholder="+ Or type an option (e.g. Takeaways 🍕)" class="grow"><button class="btn small ghost" id="pl-add">Add</button></div>
+    <div id="pl-adders"></div>
+    <div class="row" style="margin-top:6px"><input type="text" id="pl-own" placeholder="+ Or type an option" class="grow"><button class="btn small ghost" id="pl-add">Add</button></div>
     <div class="err" id="pl-err"></div>
     <button class="btn" style="width:100%;margin-top:10px" id="pl-send">Send poll</button>`);
   const opts = [];
@@ -445,17 +508,116 @@ async function pollMaker() {
     $('#pl-opts', s).innerHTML = opts.map((o, i) => `<div class="chip-x" style="margin:3px 4px 0 0">${esc(o.label)}<button data-plx="${i}">✕</button></div>`).join('') || '<div class="muted">No options yet</div>';
     $$('[data-plx]', s).forEach((b) => b.onclick = () => { opts.splice(b.dataset.plx, 1); draw(); });
   };
-  draw();
+  const add = (o) => { if (opts.length >= 6) return toast('6 options at most'); if (!opts.some((x) => x.label === o.label)) opts.push(o); draw(); };
   $('[data-close]', s).onclick = () => s.remove();
-  $('#pl-pick', s).onchange = (e) => { const r = sup.find((x) => x.id === e.target.value); if (r && opts.length < 6) opts.push({ label: r.name, recipe_id: r.id }); e.target.value = ''; draw(); };
-  const addOwn = () => { const v = $('#pl-own', s).value.trim(); if (v && opts.length < 6) { opts.push({ label: v }); $('#pl-own', s).value = ''; draw(); } };
+  $$('[data-pk]', s).forEach((a) => a.onclick = (e) => { e.preventDefault(); s.remove(); pollMaker(a.dataset.pk); });
+  const extra = $('#pl-extra', s), adders = $('#pl-adders', s);
+  let card = () => ({});
+
+  if (kind === 'supper') {
+    const cat = await api('catalog');
+    const sup = cat.recipes.filter((r) => r.meal === 's' && r.active && !r.name.startsWith('Rain plan:')).sort((a, b) => a.name.localeCompare(b.name));
+    extra.innerHTML = `<label class="f">For which day? (a grown-up can then set the winning supper)</label><input type="date" id="pl-d" value="${today}">`;
+    adders.innerHTML = `<div class="row" style="margin-top:6px"><select id="pl-pick" class="grow" data-search><option value="">+ Add a supper…</option>${sup.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select></div>`;
+    $('#pl-pick', s).onchange = (e) => { const r = sup.find((x) => x.id === e.target.value); if (r) add({ label: r.name, recipe_id: r.id }); e.target.value = ''; };
+    card = () => ({ date: $('#pl-d', s).value || null });
+  }
+  if (kind === 'task') {
+    const areas = S.me.areas || ['Kitchen', 'Lounge', 'Yard', 'Other'];
+    extra.innerHTML = `<label class="f">The task</label><input type="text" id="pl-tt" placeholder="e.g. Wash the car">
+      <div class="row wrap"><div class="grow"><label class="f">Area</label><select id="pl-ta">${areas.map((a) => `<option>${esc(a)}</option>`).join('')}</select></div>
+      <div style="width:120px"><label class="f">Due</label><input type="date" id="pl-td" value="${today}"></div></div>`;
+    adders.innerHTML = `<div class="muted" style="margin-top:6px">Everyone is an option. Remove anyone who can't. A grown-up can then give the task to the winner.</div>`;
+    S.users.filter((u) => u.id).forEach((u) => opts.push({ label: `${u.emoji || ''} ${u.kid_name && S.me.is_child ? u.kid_name : u.name}`.trim(), user_id: u.id }));
+    opts.splice(6);
+    card = () => { const title = $('#pl-tt', s).value.trim(); return title ? { task: { title, area: $('#pl-ta', s).value }, date: $('#pl-td', s).value || today } : { error: 'Say what the task is' }; };
+    $('#pl-tt', s).oninput = () => { if (!$('#pl-q', s).dataset.edited) $('#pl-q', s).value = $('#pl-tt', s).value.trim() ? `Who will ${$('#pl-tt', s).value.trim().replace(/^./, (c) => c.toLowerCase())}?` : Q.task; };
+  }
+  if (kind === 'schedule') {
+    extra.innerHTML = `<label class="f">What is it?</label><input type="text" id="pl-et" placeholder="e.g. Visit Gran, family braai">`;
+    adders.innerHTML = `<div class="row" style="margin-top:6px"><input type="date" id="pl-sd" value="${today}" class="grow"><input type="time" id="pl-st" style="width:110px"><button class="btn small ghost" id="pl-sadd">Add time</button></div>`;
+    $('#pl-sadd', s).onclick = () => {
+      const d = $('#pl-sd', s).value, t = $('#pl-st', s).value;
+      if (!isYmd(d)) return toast('Pick a day');
+      add({ label: `${short(d)}${t ? ' · ' + t : ''}`, date: d, time: isHm(t) ? t : null });
+    };
+    card = () => { const title = $('#pl-et', s).value.trim(); return { event: { title: title || $('#pl-q', s).value.trim() } }; };
+    $('#pl-et', s).oninput = () => { if (!$('#pl-q', s).dataset.edited) $('#pl-q', s).value = $('#pl-et', s).value.trim() ? `When suits everyone for ${$('#pl-et', s).value.trim()}?` : Q.schedule; };
+  }
+  $('#pl-q', s).oninput = () => { $('#pl-q', s).dataset.edited = '1'; };
+  draw();
+  const addOwn = () => { const v = $('#pl-own', s).value.trim(); if (v) { add({ label: v }); $('#pl-own', s).value = ''; } };
   $('#pl-add', s).onclick = addOwn; $('#pl-own', s).onkeydown = (e) => { if (e.key === 'Enter') addOwn(); };
   $('#pl-send', s).onclick = async () => {
     const q = $('#pl-q', s).value.trim();
+    const extraCard = card();
+    if (extraCard.error) { $('#pl-err', s).textContent = extraCard.error; return; }
     if (!q || opts.length < 2) { $('#pl-err', s).textContent = 'Add a question and at least 2 options'; return; }
     s.remove();
-    await sendMsg(null, '', { type: 'poll', q, date: $('#pl-d', s).value || null, options: opts });
+    await sendMsg(null, '', { type: 'poll', kind, q, ...extraCard, options: opts });
   };
 }
 
 window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#chat')) document.body.classList.remove('chat-mode'); });
+
+// ---------- video clips ----------
+function pickVideo() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'video/*';
+  inp.onchange = () => { const f = inp.files[0]; if (f) videoPreview(f); };
+  inp.click();
+}
+function videoPreview(file) {
+  if (file.size > MEDIA_MAX_MB.video * 1024 * 1024) return toast(`That video is ${Math.round(file.size / 1048576)} MB. The limit is ${MEDIA_MAX_MB.video} MB: trim it or pick a shorter one.`);
+  const url = URL.createObjectURL(file);
+  const s = sheet(`<div class="spread"><h2 style="margin:0">Send video</h2><button class="btn small ghost" data-close>✕</button></div>
+    <video class="clip" src="${url}" controls playsinline style="width:100%;max-height:50vh;margin-top:8px"></video>
+    <div class="row" style="margin-top:10px"><input type="text" id="vv-cap" placeholder="Add a caption…" class="grow"><button class="btn send-round" id="vv-send">➤</button></div>`);
+  const close = () => { s.remove(); URL.revokeObjectURL(url); };
+  $('[data-close]', s).onclick = close;
+  $('#vv-send', s).onclick = async () => {
+    const cap = $('#vv-cap', s).value.trim();
+    close();
+    try { const key = await uploadMedia(file, 'video'); await sendMsg(key, cap); } catch (e) { toast(e.message); }
+  };
+}
+
+// ---------- voice notes ----------
+const VOICE_MAX_SECS = 180;
+async function recordVoice() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    return toast(window.isSecureContext ? "This phone's browser can't record voice notes." : 'Voice notes need the secure address (https://stewartza.co.za), not the Wi-Fi address.');
+  }
+  if ($('.rec-bar')) return; // already recording
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { return toast('Allow the microphone for the Nest to send voice notes.'); }
+  const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+  const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const chunks = [];
+  let send = false, secs = 0;
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const bar = document.createElement('div');
+  bar.className = 'rec-bar';
+  bar.innerHTML = `<button class="btn small ghost" data-cancel title="Cancel">🗑️</button><span class="dot"></span><span class="t">0:00</span>
+    <span class="muted grow">Recording…</span><button class="btn send-round" data-send title="Send">➤</button>`;
+  $('.composer').appendChild(bar);
+  const tick = setInterval(() => {
+    secs++; $('.t', bar).textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    if (secs >= VOICE_MAX_SECS) { send = true; rec.stop(); }
+  }, 1000);
+  const cancel = () => { send = false; if (rec.state !== 'inactive') rec.stop(); };
+  const finish = () => { clearInterval(tick); stream.getTracks().forEach((t) => t.stop()); bar.remove(); window.removeEventListener('hashchange', cancel); };
+  rec.onstop = async () => {
+    finish();
+    if (!send || !chunks.length) return;
+    if (secs < 1) return toast('Too short: record a little longer');
+    const blob = new Blob(chunks, { type: (rec.mimeType || type || 'audio/webm').split(';')[0] });
+    try { const key = await uploadMedia(blob, 'audio'); await sendMsg(key, ''); } catch (e) { toast(e.message); }
+  };
+  $('[data-cancel]', bar).onclick = cancel;
+  $('[data-send]', bar).onclick = () => { send = true; rec.stop(); };
+  window.addEventListener('hashchange', cancel); // leaving the chat throws the recording away
+  rec.start(250);
+  navigator.vibrate?.(40);
+}

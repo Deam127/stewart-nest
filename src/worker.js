@@ -1,7 +1,7 @@
 // The Stewart Nest — API (Cloudflare Worker + D1)
 // Static files in /public are served by Workers Assets; everything under /api lands here.
 
-import { json, bad, isDate, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask, schoolContext, templateApplies } from './util.js';
+import { json, bad, isDate, doneDay, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask, schoolContext, templateApplies } from './util.js';
 import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
 import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
@@ -11,6 +11,8 @@ import { chat as chatApi, removeMessages } from './chat.js';
 import { requiredPerm } from './permissions.js';
 import { kidView } from './util.js';
 import { phase2 } from './phase2.js';
+import { media as mediaApi } from './media.js';
+import { pushApi, withRequest } from './push.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
   'Yard', 'Dogs', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
@@ -67,11 +69,11 @@ const morningCount = async (db, t) => (await db.prepare("SELECT COUNT(*) AS n FR
 
 // ---------- router ----------
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
-      const res = await api(req, env, url);
+      const res = await withRequest(env, ctx, url.origin, () => api(req, env, url));
       // children see "Mom" and "Dad" instead of first names
       if (res.__kid && (res.headers.get('content-type') || '').includes('json')) {
         const people = (await env.DB.prepare('SELECT id, name, is_parent, is_admin, kid_name FROM users').all()).results;
@@ -95,7 +97,7 @@ async function api(req, env, url) {
   await ensureSchema(db);
 
   // ----- public endpoints (login) -----
-  const pub = await authPublic({ req, db, url, path, method });
+  const pub = await authPublic({ req, env, db, url, path, method });
   if (pub) return pub;
 
   // ----- everything below needs a login -----
@@ -279,7 +281,8 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
     const b = await body(req);
     if (!b.title?.trim() || !b.assignee || !AREAS.includes(b.area)) return bad('Title, area and person needed');
     if ((b.assignee !== me.id || b.repeat_days) && !me.perms.assign_tasks) return bad(me.is_child ? 'You can add a one-off task for yourself. Ask your dad or mom for anything else.' : 'Not allowed on your profile', 403);
-    const points = Math.max(1, Math.min(50, Number(b.points) || 5));
+    // a to-do someone adds for themselves without the "give tasks" permission earns no points (no self-awarded rewards)
+    const points = me.perms.assign_tasks ? Math.max(1, Math.min(50, Number(b.points) || 5)) : 0;
     const due = isDate(b.due_date) ? b.due_date : saToday();
     if (b.repeat_days && /^[1-7]+$/.test(b.repeat_days)) {
       const when = ['school', 'no_school'].includes(b.when_school) ? b.when_school : 'any';
@@ -301,7 +304,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
     const t = await db.prepare('SELECT * FROM tasks WHERE id = ?').bind(parts[1]).first();
     if (!t) return bad('Not found', 404);
     if (t.assignee !== me.id && !me.perms.assign_tasks) return bad('Only the person it is for (or Mom/Dad) can tick it', 403);
-    const day = isDate(date) ? date : saToday();
+    const day = doneDay(me, date);
     await db.prepare('UPDATE tasks SET done_at = ? WHERE id = ?').bind(done ? day : null, t.id).run();
     if (done && t.assigned_by && t.assigned_by !== me.id && !t.template_id)
       await notify(db, [t.assigned_by], `✅ ${me.name} finished: ${t.title}`, '#tasks');
@@ -423,6 +426,10 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
   const ch = await chatApi({ req, env, db, path, parts, method, q, me });
   if (ch) return ch;
 
+  const pu = await pushApi({ req, env, db, path, method, me });
+  if (pu) return pu;
+  const md = await mediaApi({ req, env, path, parts, method });
+  if (md) return md;
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
   if (p2) return p2;
 

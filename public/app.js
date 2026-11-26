@@ -36,6 +36,42 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600);
 }
+// ---------- search box for long lists ----------
+// Any <select data-search> with lots of options gets a search box above it that narrows the list as you type.
+const SEARCH_MIN_OPTIONS = 12;
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+function searchSelect(sel) {
+  if (sel.dataset.searchReady || sel.options.length < SEARCH_MIN_OPTIONS) return;
+  sel.dataset.searchReady = '1';
+  const all = [...sel.options].map((o) => o.cloneNode(true));
+  const keep = all.filter((o) => !o.value); // "Choose…" style first line
+  const box = document.createElement('input');
+  box.type = 'search'; box.className = 'sel-search'; box.placeholder = `🔍 Search ${all.length - keep.length}…`;
+  box.dataset.perm = sel.dataset.perm || '';
+  if (!box.dataset.perm) delete box.dataset.perm;
+  sel.before(box);
+  const was = sel.value;
+  box.oninput = () => {
+    const q = norm(box.value.trim());
+    const hits = q ? all.filter((o) => o.value && norm(o.textContent).includes(q)) : all.filter((o) => o.value);
+    const head = q ? [Object.assign(document.createElement('option'), { value: '', textContent: hits.length ? `${hits.length} found: pick one…` : 'Nothing found' })] : keep;
+    sel.replaceChildren(...head.map((o) => o.cloneNode(true)), ...hits.map((o) => o.cloneNode(true)));
+    sel.value = q ? '' : was;
+  };
+}
+new MutationObserver(() => $$('select[data-search]:not([data-search-ready])').forEach(searchSelect))
+  .observe(document.documentElement, { childList: true, subtree: true });
+// Filter the rows of a picker list by what's typed (rows: elements matching rowSel inside root)
+function filterRows(input, root, rowSel) {
+  input.oninput = () => {
+    const q = norm(input.value.trim());
+    let shown = 0;
+    $$(rowSel, root).forEach((el) => { const hit = !q || norm(el.textContent + ' ' + (el.dataset.find || '')).includes(q); el.hidden = !hit; shown += hit; });
+    let none = $('.find-none', root);
+    if (!none) { none = document.createElement('div'); none.className = 'empty find-none'; none.textContent = 'Nothing found'; root.appendChild(none); }
+    none.hidden = shown > 0;
+  };
+}
 const user = (id) => S.users.find((u) => u.id === id) || { name: id, emoji: '🙂', colour: '#888' };
 
 // ---------- weather (Open-Meteo, free, no key) ----------
@@ -133,6 +169,7 @@ async function viewLogin() {
       <div class="row"><input type="password" id="pw" autocomplete="current-password" placeholder="Password" class="grow">
         <button type="button" class="btn ghost small" id="pw-eye" title="Show password">👁</button></div>
       <input type="password" id="pw2" autocomplete="new-password" placeholder="Type it again" style="margin-top:8px" hidden>
+      <input type="text" id="pw-code" autocomplete="one-time-code" placeholder="Setup code (from the laptop)" style="margin-top:8px" hidden>
       <div class="err" id="err"></div>
       <button class="btn" style="width:100%" id="pw-go">Log in</button>
     </form></div>`;
@@ -147,6 +184,7 @@ async function viewLogin() {
       : setup ? `Hi ${sel.name}! You're the admin. Choose your password (at least 6 characters).` : `Hi ${sel.name}, enter your password`;
     $('#pw').hidden = blocked; $('#pw-eye').hidden = blocked; $('#pw-go').hidden = blocked;
     $('#pw2').hidden = !setup;
+    $('#pw-code').hidden = !(setup && sel.needs_code);
     $('#pw').autocomplete = setup ? 'new-password' : 'current-password';
     $('#pw-go').textContent = setup ? 'Save password & log in' : 'Log in';
     if (!blocked) $('#pw').focus();
@@ -157,7 +195,7 @@ async function viewLogin() {
     const password = $('#pw').value;
     if (!$('#pw2').hidden && password !== $('#pw2').value) { $('#err').textContent = "The two passwords don't match"; return; }
     try {
-      const r = await api('login', { body: { user: sel.id, password } });
+      const r = await api('login', { body: { user: sel.id, password, ...($('#pw-code').hidden ? {} : { setup_code: $('#pw-code').value.trim() }) } });
       if (r.firstTime) toast('Password saved. Welcome to the Nest!');
       await boot();
     } catch (err) { $('#err').textContent = err.message; $('#pw').select(); }
@@ -276,7 +314,7 @@ async function viewDay(date) {
     const m = d.menu.find((x) => x.meal === k);
     const opts = recipes.filter((r) => r.meal === k && r.active && !r.name.startsWith('Rain plan:'))
       .map((r) => `<option value="${r.id}" ${m && m.recipe_id === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
-    if (!m) return `<div class="card meal-card"><div class="lbl">${MEAL[k]}</div><select data-perm="edit_menu" data-meal="${k}"><option value="">Choose…</option>${opts}</select></div>`;
+    if (!m) return `<div class="card meal-card"><div class="lbl">${MEAL[k]}</div><select data-perm="edit_menu" data-search data-meal="${k}"><option value="">Choose…</option>${opts}</select></div>`;
     const showBackup = m.use_backup && m.backup_name;
     const rainWarn = m.outdoor && !m.use_backup && rainLikely(date);
     return `<div class="card meal-card">
@@ -286,7 +324,7 @@ async function viewDay(date) {
       ${rainWarn ? `<div class="rain-box">☔ ${wx.rain}% chance of rain. The rain plan is <strong>${esc(m.backup_name)}</strong>.</div>` : ''}
       <details><summary>Portions & method</summary>${portions(showBackup ? m.backup_portions : m.portions)}<p>${esc(showBackup ? m.backup_method : m.method)}</p></details>
       <div class="row wrap" style="margin-top:8px" data-perm="edit_menu">
-        <select data-meal="${k}" class="grow" style="max-width:70%">${opts}</select>
+        <select data-meal="${k}" data-search class="grow" style="max-width:70%">${opts}</select>
         ${m.rain_backup ? `<button class="btn small ${m.use_backup ? 'ghost' : 'rain'}" data-backup="${m.use_backup ? 0 : 1}">${m.use_backup ? 'Back to braai' : '☔ Use rain plan'}</button>` : ''}
       </div></div>`;
   }).join('');
@@ -334,7 +372,7 @@ async function viewDay(date) {
 
   $('#dprev').onclick = () => (location.hash = '#day/' + addDays(date, -1));
   $('#dnext').onclick = () => (location.hash = '#day/' + addDays(date, 1));
-  $$('select[data-meal]').forEach((s) => s.onchange = async () => { await put('menu', { date, meal: s.dataset.meal, recipe_id: s.value }); toast('Meal changed'); viewDay(date); });
+  $$('select[data-meal]').forEach((s) => s.onchange = async () => { if (!s.value) return; await put('menu', { date, meal: s.dataset.meal, recipe_id: s.value }); toast('Meal changed'); viewDay(date); });
   $$('[data-backup]').forEach((b) => b.onclick = async () => { await put('menu/backup', { date, meal: 's', use_backup: b.dataset.backup === '1' }); toast(b.dataset.backup === '1' ? 'Rain plan on. The family has been told.' : 'Back to the braai'); viewDay(date); });
   $$('[data-rainplan]').forEach((b) => b.onclick = async () => { await put('plans/' + b.dataset.rainplan, { use_rain: b.dataset.v === '1' }); viewDay(date); });
   $$('[data-delplan]').forEach((b) => b.onclick = async () => { if (confirm('Remove this plan?')) { await del('plans/' + b.dataset.delplan); viewDay(date); } });
@@ -428,7 +466,7 @@ async function viewTasks(sub, presetDate) {
       </div>
       <div class="row">
         <div class="grow"><label class="f">Due</label><input type="date" id="t-due" value="${presetDate || today}"></div>
-        <div style="width:90px"><label class="f">Points</label><input type="number" id="t-pts" value="5" min="1" max="50"></div>
+        <div style="width:90px" data-perm="assign_tasks"><label class="f">Points</label><input type="number" id="t-pts" value="5" min="1" max="50"></div>
       </div>
       <label class="f">Repeat every… (leave empty for a one-off)</label>
       <div class="days-pick" id="t-days">${dayBoxes}</div>
@@ -517,9 +555,9 @@ async function viewMore() {
         <input type="range" id="al-vol" min="0.1" max="1" step="0.1" value="${Alerts.get('volume', '0.5')}" class="grow" title="Volume"></div>
       <label class="row" style="margin-top:8px"><input type="checkbox" id="al-vib" ${Alerts.get('vibrate', '1') === '1' ? 'checked' : ''}> 📳 Vibrate${navigator.vibrate ? '' : ' <span class="muted">(not supported on this device, e.g. iPhone)</span>'}</label>
       <div class="row wrap" style="margin-top:8px"><button class="btn small ghost" id="al-test">▶ Test</button>
-        ${'Notification' in window && Notification.permission !== 'granted' ? `<button class="btn small" id="notif-on">Allow pop-up notifications</button>` : ''}</div>
-      <p class="muted">Pop-up notifications: <strong>${notifState}</strong>. While the Nest is open you get the sound and vibration; when it's in the background, a phone notification.
-        Tip: on phones, "Add to Home screen" and keep it open in the background for the best alerts.</p>
+        ${'Notification' in window && (Notification.permission !== 'granted' || Alerts.get('push', '0') !== '1') ? `<button class="btn small" id="notif-on">🔔 Switch on phone notifications</button>` : ''}</div>
+      <p class="muted">Phone notifications: <strong>${notifState}${Alerts.get('push', '0') === '1' ? ', also when the app is closed' : ''}</strong>. While the Nest is open you get the sound and vibration; otherwise a phone notification, and the unread count on the app icon.
+        Tip: "Add to Home screen" first. On iPhone, notifications only work from the home-screen app.</p>
     </div>
 
     <div data-perm="edit_menu"><h2>🍽️ Menu</h2>
@@ -554,8 +592,11 @@ async function viewMore() {
     </div>
     `;
 
-  $('#logout').onclick = async () => { await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
-  $('#notif-on') && ($('#notif-on').onclick = async () => { await Notification.requestPermission(); viewMore(); });
+  $('#logout').onclick = async () => { await Alerts.pushOff(); P2.pushSynced = false; await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
+  $('#notif-on') && ($('#notif-on').onclick = async () => {
+    try { await Alerts.pushOn(); toast('🔔 Notifications are on for this phone'); } catch (e) { toast(e.message); }
+    viewMore();
+  });
   $('#al-sound').onchange = (e) => Alerts.set('sound', e.target.checked ? '1' : '0');
   $('#al-vib').onchange = (e) => { Alerts.set('vibrate', e.target.checked ? '1' : '0'); if (e.target.checked) Alerts.buzz(); };
   $('#al-tone').onchange = (e) => { Alerts.set('tone', e.target.value); Alerts.play(e.target.value); };

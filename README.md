@@ -73,6 +73,30 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
 
 **Also in this version:** meal ratings (stars, keep/swap, comments, with a report to paste into Claude), plus phone home-screen icons.
 
+**Chat, notifications & safety (latest):**
+- **🎤 Voice notes:** tap the mic in chat, talk (up to 3 minutes), then tap ➤ to send or 🗑️ to cancel. This needs the secure address (https://stewartza.co.za); it won't work on the laptop's Wi-Fi address.
+- **🎥 Video clips:** 📎 → Video. Record or pick a clip (up to 50 MB), add a caption and send.
+- **👀 Who reacted:** tap the reactions under a message to see who reacted with what. Tap your own to take it back.
+- **📊 Ask the family:** a poll can now be about:
+  - **supper:** a grown-up sets the winning meal
+  - **a task:** who will do it? A grown-up gives the task to the winner
+  - **the schedule:** when suits everyone? A grown-up puts the winning time on the calendar
+  - **anything else**
+- **🔍 Search:** in chat's *Share from the Nest* (suppers for the next 4 weeks, tasks, events for the next 3 months), in *Family photos*, and in long recipe lists (day menu, rotation, supper polls).
+- **🔔 Phone notifications, also when the app is closed,** plus the unread count on the app icon:
+  - Each person switches them on in **More → Alerts on this device → Switch on phone notifications**.
+  - Add the app to the home screen first. On iPhone, notifications only work from the home-screen app.
+  - *Publish to Cloudflare.bat* creates the keys this needs the first time it runs.
+  - Logging out stops that phone getting the person's notifications.
+- **Safer:**
+  - Event reminders (birthdays, bin day, school) are delivered again.
+  - Chat cards can only link to pages inside the Nest.
+  - Only real photos, voice notes and videos can be uploaded.
+  - Finishing a shop twice no longer doubles the cupboard counts.
+  - A task someone adds for themselves without the "give tasks" permission earns no points.
+  - Only Mom or Dad can tick a task as done on an earlier day.
+- **Admin setup code:** if the online database starts empty, the admin's first password also needs a setup code. *Publish to Cloudflare.bat* prints it, so nobody else can claim the admin profile. On the laptop no code is needed.
+
 **Phase 2 (done):** family chat, fun-time ideas, Madilea's going-out bag and monthly buy list, stock take before shopping, barcode and photo inventory, and workouts.
 
 ---
@@ -113,7 +137,9 @@ Open **http://localhost:8787**.
    - publishes the app
    - once the domain is Active, puts it on **https://stewartza.co.za** (and www)
 
-Run it again any time after updating the app files to publish the new version. Your online data is left alone. A backup of what was copied up is kept in `backups/`.
+Run it again any time after updating the app files to publish the new version. It also sets up phone notifications the first time, and prints the admin setup code if the admin has no password online yet.
+
+**Testing phone notifications on the laptop (optional):** they only work on `http://localhost:8787` (not the Wi-Fi address). Put two lines in a file called `.dev.vars` in the app folder: `VAPID_PUBLIC=…` and `VAPID_PRIVATE=…` (any P-256 key pair, base64url; the publish script shows how they're made). Your online data is left alone. A backup of what was copied up is kept in `backups/`.
 
 ## Changing things
 

@@ -9,6 +9,7 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
+import { randomBytes, generateKeyPairSync } from 'node:crypto';
 
 const DOMAIN = 'stewartza.co.za';
 const DB = 'stewart-nest';
@@ -115,10 +116,38 @@ async function main() {
   say('Publishing the app…');
   console.log('(If Cloudflare asks whether to replace an existing DNS record for the domain, answer y.)\n');
   if (!live('npx wrangler deploy')) throw new Error('Publishing failed (see above).');
+  await setupCode();
+  pushKeys();
   const onDomain = /"custom_domain":\s*true/.test(readFileSync(CONFIG, 'utf8'));
   console.log(`\n🎉  The Stewart Nest is online${onDomain ? ` at https://${DOMAIN}` : ' (see the workers.dev address above)'}`);
   console.log('    Log in with the same passwords as on the laptop (or set them up again if you started fresh).');
   console.log('    On phones: open it in Chrome/Safari → "Add to Home screen".\n');
+}
+
+// Keys for phone notifications when the app is closed (Web Push). Made once, kept as Cloudflare secrets.
+function pushKeys() {
+  const list = tryRun('npx wrangler secret list --format json');
+  if (list.ok && /"VAPID_PRIVATE"/.test(list.out) && /"VAPID_PUBLIC"/.test(list.out)) return;
+  say('Setting up phone notifications…');
+  const jwk = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ format: 'jwk' });
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+  for (const [name, value] of [['VAPID_PUBLIC', raw], ['VAPID_PRIVATE', jwk.d]]) {
+    const put = spawnSync(`npx wrangler secret put ${name}`, { input: value + '\n', stdio: ['pipe', 'inherit', 'inherit'], shell: true });
+    if (put.status !== 0) { warn('Could not save the notification keys. Run this again to switch on phone notifications.'); return; }
+  }
+  console.log('Phone notifications ready ✔ (each person switches them on in More → Alerts on this device)');
+}
+
+// If the admin online has no password yet, the first password needs a one-time setup code (so nobody else can claim it).
+async function setupCode() {
+  const r = tryRun(`npx wrangler d1 execute ${DB} --remote --json --command "SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND pin_hash IS NULL"`);
+  const m = r.ok && r.out.match(/"n":\s*(\d+)/);
+  if (!m || m[1] === '0') return;
+  const code = randomBytes(4).toString('hex').toUpperCase();
+  const put = spawnSync('npx wrangler secret put SETUP_CODE', { input: code + '\n', stdio: ['pipe', 'inherit', 'inherit'], shell: true });
+  if (put.status !== 0) { warn('Could not save the setup code. Run this again before logging in online.'); return; }
+  say(`Admin setup code: ${code}`);
+  console.log("   The admin password isn't set online yet. When you first log in as the admin on the website, type this code too.");
 }
 
 main().catch((e) => { console.error(`\n\x1b[31m✖ ${e.message}\x1b[0m\n`); process.exitCode = 1; }).finally(() => rl.close());

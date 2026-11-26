@@ -16,6 +16,17 @@ async function syncBirthday(db, id, name, birthday, by) {
 }
 const okBirthday = (b) => /^(\d{4}-)?\d{2}-\d{2}$/.test(b || '');
 const MIN_LEN = 6;
+// The laptop (and phones on the home Wi-Fi) may set the admin's first password freely.
+// Online, that first password also needs the setup code (Cloudflare secret SETUP_CODE), so a stranger
+// can't claim the admin profile of a freshly published, empty database.
+const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/;
+const isLocal = (url) => LOCAL_HOST.test(url.hostname);
+const sameText = (a, b) => {
+  a = String(a ?? ''); b = String(b ?? '');
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
 
 // ---------- automatic schema upgrades ----------
 // Runs once per server start. Brings an existing database up to date without wiping data,
@@ -39,6 +50,8 @@ const NEED_COLUMNS = {
   chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT', client_id: 'TEXT' },
 };
 const NEED_TABLES = [
+  `CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user_id TEXT NOT NULL, p256dh TEXT, auth TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   'CREATE TABLE IF NOT EXISTS chat_votes (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, opt INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))',
   `CREATE TABLE IF NOT EXISTS chat_reactions (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (message_id, user_id, emoji))`,
@@ -148,23 +161,32 @@ async function startSession(db, url, userId, extra = {}) {
 }
 
 // Public endpoints (before login). Returns a Response or null.
-export async function authPublic({ req, db, url, path, method }) {
+export async function authPublic({ req, env, db, url, path, method }) {
   if (path === 'users' && method === 'GET') {
     const { results } = await db.prepare(`SELECT id, name, full_name, colour, emoji, is_parent, is_admin, kid_name,
       pin_hash IS NOT NULL AS has_password FROM users WHERE active = 1 ORDER BY is_admin DESC, is_parent DESC, name`).all();
     // Only the admin can set up their own password on first login; everyone else gets one from the admin
     // (so nobody can claim someone else's profile).
-    return json(results.map((u) => ({ ...u, can_set_up: !u.has_password && !!u.is_admin })));
+    const needsCode = !isLocal(url);
+    return json(results.map((u) => ({ ...u, can_set_up: !u.has_password && !!u.is_admin, needs_code: !u.has_password && !!u.is_admin && needsCode })));
   }
 
   if (path === 'login' && method === 'POST') {
-    const { user, password } = await body(req);
+    const { user, password, setup_code } = await body(req);
     const u = await db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').bind(user).first();
     if (!u) return bad('Unknown person', 404);
     if (u.locked_until && u.locked_until > new Date().toISOString())
       return bad('Too many wrong passwords. Try again in 15 minutes, or ask Dad (Lee Roy) to reset it.', 429);
     if (!u.pin_hash) {
       if (!u.is_admin) return bad('Your password hasn\'t been set up yet. Ask Dad (Lee Roy) to set one up for you.', 403);
+      if (!isLocal(url)) {
+        if (!env?.SETUP_CODE) return bad('The admin password has to be set up first. On the laptop, run "Publish to Cloudflare.bat" again: it prints a setup code.', 403);
+        if (!sameText(setup_code, env.SETUP_CODE)) {
+          const failed = u.failed + 1, lock = failed >= 5 ? new Date(Date.now() + 15 * 60e3).toISOString() : null;
+          await db.prepare('UPDATE users SET failed = ?, locked_until = ? WHERE id = ?').bind(lock ? 0 : failed, lock, u.id).run();
+          return bad(lock ? 'Wrong setup code. Locked for 15 minutes.' : 'Wrong setup code', 403);
+        }
+      }
       const w = weak(password); if (w) return bad(w);
       await setPassword(db, u.id, password, 0);
       return startSession(db, url, u.id, { firstTime: true });

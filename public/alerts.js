@@ -47,6 +47,7 @@ const Alerts = {
   // a new message/notification: in the app → sound + vibrate; app in the background → phone notification
   async ping({ title = 'The Stewart Nest', body = '', link = '#chat', quiet = false } = {}) {
     if (!document.hidden) { this.play(quiet ? 'pop' : undefined); this.buzz(quiet ? [60] : undefined); return; }
+    if (this.get('push', '0') === '1') return; // push is on: the service worker shows it (no double pop-up)
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         const reg = navigator.serviceWorker && (await navigator.serviceWorker.getRegistration());
@@ -56,6 +57,40 @@ const Alerts = {
       } catch { /* ignore */ }
     }
   },
+  // ---------- notifications when the app is closed (Web Push) ----------
+  pushSupported() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext; },
+  // ask once (from a tap), then register this phone for the logged-in person
+  async pushOn() {
+    if (!this.pushSupported()) throw new Error(window.isSecureContext ? "This browser can't show notifications when the app is closed." : 'Notifications need the secure address (https://stewartza.co.za).');
+    if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') throw new Error('Notifications are blocked. Allow them for this site in the browser settings.');
+    await this.pushSync(true);
+  },
+  // keep this phone's subscription linked to whoever is logged in (runs after every login / app start)
+  async pushSync(force = false) {
+    try {
+      if (!this.pushSupported() || Notification.permission !== 'granted') { this.set('push', '0'); return; }
+      const r = await fetch('/api/push/key', { credentials: 'same-origin' });
+      const { key } = r.ok ? await r.json() : {};
+      if (!key) { this.set('push', '0'); if (force) throw new Error('Phone notifications are not set up on the server yet (run Publish to Cloudflare again).'); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((key.length + 3) % 4)), (c) => c.charCodeAt(0));
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+      const res = await fetch('/api/push/subscribe', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sub.toJSON()) });
+      if (!res.ok) throw new Error('Could not switch on notifications');
+      this.set('push', '1');
+    } catch (e) { this.set('push', '0'); if (force) throw e; }
+  },
+  // logging out: this phone stops getting that person's notifications
+  async pushOff() {
+    try {
+      const sub = 'serviceWorker' in navigator && (await (await navigator.serviceWorker.getRegistration())?.pushManager?.getSubscription());
+      if (sub) await fetch('/api/push/unsubscribe', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+    } catch { /* ignore */ }
+    this.set('push', '0'); this.badge(0);
+  },
+  // unread count on the app icon (installed app; Android shows a dot with the notification instead)
+  badge(n) { try { n ? navigator.setAppBadge?.(n) : navigator.clearAppBadge?.(); } catch { /* not supported */ } },
 };
 window.Alerts = Alerts;
 ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, () => Alerts.unlock(), { once: true, passive: true }));

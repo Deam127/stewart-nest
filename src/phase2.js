@@ -1,6 +1,7 @@
 // The Stewart Nest — Phase 2 API: chat, fun ideas, Madilea's lists, inventory & photos,
 // stock take → shopping list → trolley, workouts.
-import { json, bad, isDate, addDays, mondayOf, saToday, fmtShort, body, notify, randomHex,
+import { mediaLabel } from './media.js';
+import { json, bad, isDate, doneDay, addDays, mondayOf, saToday, fmtShort, body, notify,
   ensureTemplateTasks, decorateTask, familyIds } from './util.js';
 
 const num = (v, d = null) => (v === '' || v == null || isNaN(Number(v)) ? d : Number(v));
@@ -8,54 +9,20 @@ const ITEM_FIELDS = ['barcode', 'name', 'brand', 'size', 'section', 'kind', 'pri
 
 export async function phase2({ req, env, db, url, path, parts, method, q, me, others: otherIds }) {
   const others = () => otherIds;
-  // ================= photos (R2) =================
-  if (path === 'photos' && method === 'POST') {
-    if (!env.PHOTOS) return bad('Photo storage is not set up', 500);
-    const type = req.headers.get('content-type') || '';
-    if (!type.startsWith('image/')) return bad('Send an image');
-    const buf = await req.arrayBuffer();
-    if (buf.byteLength > 4 * 1024 * 1024) return bad('Photo too big (max 4 MB)');
-    const key = `p/${Date.now()}-${randomHex(6)}.${type.includes('png') ? 'png' : 'jpg'}`;
-    await env.PHOTOS.put(key, buf, { httpMetadata: { contentType: type } });
-    return json({ key });
-  }
-  if (parts[0] === 'photos' && method === 'GET') {
-    const key = parts.slice(1).join('/');
-    const obj = env.PHOTOS && (await env.PHOTOS.get(key));
-    if (!obj) return bad('Not found', 404);
-    return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable' } });
-  }
-
-  // ================= family chat =================
-  if (path === 'chat' && method === 'GET') {
-    const after = Number(q.get('after') || 0);
-    const sql = `SELECT c.*, u.name, u.emoji, u.colour FROM chat_messages c JOIN users u ON u.id = c.user_id`;
-    const { results } = after
-      ? await db.prepare(`${sql} WHERE c.id > ? ORDER BY c.id`).bind(after).all()
-      : await db.prepare(`SELECT * FROM (${sql} ORDER BY c.id DESC LIMIT 150) ORDER BY id`).all();
-    const last = results.length ? results[results.length - 1].id : 0;
-    if (last) await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET last_id = MAX(last_id, excluded.last_id)`).bind(me.id, last).run();
-    return json(results);
-  }
-  if (path === 'chat' && method === 'POST') {
-    const { text, photo_key } = await body(req);
-    if (!text?.trim() && !photo_key) return bad('Empty message');
-    const r = await db.prepare('INSERT INTO chat_messages (user_id, text, photo_key) VALUES (?, ?, ?)').bind(me.id, (text || '').trim().slice(0, 2000), photo_key || null).run();
-    await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_id = excluded.last_id`).bind(me.id, r.meta.last_row_id).run();
-    return json({ ok: true, id: r.meta.last_row_id });
-  }
+  // photos, voice notes and videos live in media.js; chat in chat.js
   if (path === 'badges' && method === 'GET') {
-    const [n, c, latest] = await db.batch([
+    const [n, c, latest, note] = await db.batch([
       db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0').bind(me.id),
       db.prepare(`SELECT COUNT(*) AS n FROM chat_messages WHERE user_id != ? AND deleted = 0 AND id > COALESCE((SELECT last_id FROM chat_reads WHERE user_id = ?), 0)`).bind(me.id, me.id),
       // newest message from someone else, so each phone alerts once per message
       db.prepare(`SELECT c.id, c.text, c.photo_key, c.card, u.name FROM chat_messages c JOIN users u ON u.id = c.user_id
         WHERE c.user_id != ? AND c.deleted = 0 ORDER BY c.id DESC LIMIT 1`).bind(me.id),
+      // newest unread notification, for the phone notification the service worker shows
+      db.prepare('SELECT id, text, link FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY id DESC LIMIT 1').bind(me.id),
     ]);
     const l = latest.results[0];
-    return json({ notifications: n.results[0].n, chat: c.results[0].n,
-      latest: l ? { id: l.id, name: l.name, body: l.text || (l.photo_key ? '📷 Photo' : l.card ? '📌 Shared something' : '') } : null });
+    return json({ notifications: n.results[0].n, chat: c.results[0].n, note: note.results[0] || null,
+      latest: l ? { id: l.id, name: l.name, body: l.text || (l.photo_key ? { Photo: '📷 Photo', 'Voice note': '🎤 Voice note', Video: '🎥 Video' }[mediaLabel(l.photo_key)] : l.card ? '📌 Shared something' : '') } : null });
   }
 
   // ================= fun ideas =================
@@ -280,6 +247,9 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
     }
     if (parts[2] === 'finish' && method === 'POST') {
       const { shop } = await body(req);
+      // claim the trip first, so a second tap or a network retry can't add the same shopping to the cupboard twice
+      const claim = await db.prepare("UPDATE shop_trips SET status = 'done', shop = ?, finished_at = datetime('now') WHERE id = ? AND status = 'open'").bind(shop || null, id).run();
+      if (!claim.meta.changes) return bad('This shop is already finished', 409);
       const { results: lines } = await db.prepare('SELECT * FROM shop_lines WHERE trip_id = ? AND in_trolley = 1').bind(id).all();
       const today = saToday();
       const stmts = [];
@@ -289,7 +259,6 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
           .bind(l.qty || 0, l.price, shop || null, l.item_id));
         if (l.price) stmts.push(db.prepare('INSERT INTO item_prices (item_id, price, shop, date) VALUES (?, ?, ?, ?)').bind(l.item_id, l.price, shop || null, today));
       }
-      stmts.push(db.prepare("UPDATE shop_trips SET status = 'done', shop = ?, finished_at = datetime('now') WHERE id = ?").bind(shop || null, id));
       for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
       const spent = lines.reduce((s, l) => s + (l.qty || 0) * (l.price || 0), 0);
       await notify(db, others(me), `🛒 ${me.name} finished shopping: R${spent.toFixed(2)}`, '#shop');
@@ -370,7 +339,7 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
     if (t.assignee !== me.id && !me.is_parent) return bad('Only the person doing it can log it', 403);
     await db.batch([
       db.prepare('INSERT OR REPLACE INTO workout_logs (task_id, minutes, feel, note) VALUES (?, ?, ?, ?)').bind(t.id, num(minutes), num(feel), note || null),
-      db.prepare('UPDATE tasks SET done_at = COALESCE(done_at, ?) WHERE id = ?').bind(isDate(date) ? date : saToday(), t.id),
+      db.prepare('UPDATE tasks SET done_at = COALESCE(done_at, ?) WHERE id = ?').bind(doneDay(me, date), t.id),
     ]);
     return json({ ok: true });
   }

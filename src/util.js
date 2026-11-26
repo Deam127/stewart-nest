@@ -1,4 +1,5 @@
 // Shared helpers for the API
+import { pushTo } from './push.js';
 
 export const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...headers } });
@@ -12,6 +13,9 @@ export const dayDiff = (a, b) => Math.round((toD(b) - toD(a)) / 86400000); // b 
 export const weekday = (s) => { const w = toD(s).getUTCDay(); return w === 0 ? 7 : w; }; // 1=Mon … 7=Sun
 export const mondayOf = (s) => addDays(s, 1 - weekday(s));
 export const saToday = () => new Date(Date.now() + 2 * 3600e3).toISOString().slice(0, 10); // SAST, no DST
+// The day a task counts as done. Only someone who may manage other people's tasks (Mom/Dad) can record an
+// earlier day, e.g. "she did it yesterday". Everyone else's tick counts today, so late stays late. Never in the future.
+export const doneDay = (me, date) => (me.perms?.assign_tasks && isDate(date) && date <= saToday() ? date : saToday());
 export const fmtShort = (s) => toD(s).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export async function sha256(text) {
@@ -36,7 +40,7 @@ export async function notify(db, userIds, text, link = null) {
     const to = people.find((p) => p.id === u);
     return db.prepare('INSERT INTO notifications (user_id, text, link) VALUES (?, ?, ?)').bind(u, to && !to.is_parent && !to.is_admin ? forKids(text, people) : text, link);
   });
-  if (stmts.length) await db.batch(stmts);
+  if (stmts.length) { await db.batch(stmts); pushTo(db, [...new Set(userIds)]); } // and wake their phones
 }
 
 

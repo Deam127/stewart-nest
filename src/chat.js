@@ -1,5 +1,7 @@
 // The Stewart Nest — family chat: messages, replies, reactions, photo attachments.
-import { json, bad, body } from './util.js';
+import { json, bad, body, othersOf } from './util.js';
+import { pushTo } from './push.js';
+import { isMediaKey } from './media.js';
 
 const MSG_SQL = `SELECT c.id, c.user_id, c.text, c.photo_key, c.reply_to, c.created_at, c.deleted, c.card,
   u.name, u.emoji, u.colour,
@@ -24,6 +26,7 @@ async function votesFor(db, fromId) {
   for (const v of results) ((out[v.message_id] = out[v.message_id] || {})[v.opt] = out[v.message_id][v.opt] || []).push({ user_id: v.user_id, name: v.name, emoji: v.emoji });
   return out;
 }
+export const safeLink = (l) => typeof l === 'string' && /^#[\w\/.\-]*$/.test(l);
 const parseCard = (c) => { try { return c ? JSON.parse(c) : null; } catch { return null; } };
 
 // Remove a photo from storage once nothing in the Nest uses it any more.
@@ -75,6 +78,7 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
   if (path === 'chat' && method === 'POST') {
     const { text, photo_key, reply_to, card, client_id } = await body(req);
     if (!text?.trim() && !photo_key && !card) return bad('Empty message');
+    if (photo_key && !isMediaKey(photo_key)) return bad('Upload the photo, voice note or video first');
     const cid = typeof client_id === 'string' ? client_id.slice(0, 64) : null;
     // the same message sent twice (double tap, slow network retry) is only posted once
     const again = cid
@@ -87,6 +91,8 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
     if (card) {
       if (!['task', 'supper', 'event', 'recipe', 'poll', 'day'].includes(card.type)) return bad('Unknown card');
       if (card.type === 'poll' && (!card.q || !Array.isArray(card.options) || card.options.length < 2 || card.options.length > 6)) return bad('A poll needs a question and 2–6 options');
+      // a card may only link to a page inside the Nest (#day/…, #recipes …), never to javascript: or another site
+      if ('link' in card && !safeLink(card.link)) return bad('Cards can only link to a page in the Nest');
       cardJson = JSON.stringify(card);
       if (cardJson.length > 3000) return bad('Card too big');
     }
@@ -101,6 +107,7 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
       throw e;
     }
     await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_id = excluded.last_id`).bind(me.id, r.meta.last_row_id).run();
+    pushTo(db, await othersOf(db, me)); // wake everyone else's phone
     return json({ ok: true, id: r.meta.last_row_id });
   }
 
