@@ -113,11 +113,10 @@ async function main() {
     }
   }
   say('Publishing the app…');
-  const dep = spawnSync('npx wrangler deploy', { stdio: ['inherit', 'pipe', 'inherit'], shell: true, encoding: 'utf8' });
-  process.stdout.write(dep.stdout || '');
-  if (dep.status !== 0) throw new Error('Publishing failed (see above).');
-  const url = /"custom_domain":\s*true/.test(readFileSync(CONFIG, 'utf8')) ? `https://${DOMAIN}` : ((dep.stdout || '').match(/https:\/\/[^\s]+workers\.dev/) || [''])[0];
-  console.log(`\n🎉  The Stewart Nest is online${url ? ' at ' + url : ''}`);
+  console.log('(If Cloudflare asks whether to replace an existing DNS record for the domain, answer y.)\n');
+  if (!live('npx wrangler deploy')) throw new Error('Publishing failed (see above).');
+  const onDomain = /"custom_domain":\s*true/.test(readFileSync(CONFIG, 'utf8'));
+  console.log(`\n🎉  The Stewart Nest is online${onDomain ? ` at https://${DOMAIN}` : ' (see the workers.dev address above)'}`);
   console.log('    Log in with the same passwords as on the laptop (or set them up again if you started fresh).');
   console.log('    On phones: open it in Chrome/Safari → "Add to Home screen".\n');
 }
