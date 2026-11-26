@@ -102,16 +102,18 @@ Open **http://localhost:8787**.
 > ⚠️ `npm run setup` (also `npm run db:reset`) **wipes all data** and starts fresh. Only run it the first time.
 > Data lives in `.wrangler/state` inside the folder. Back that folder up if you care about it.
 
-## Put it on Cloudflare (later)
+## Put it online at stewartza.co.za (Cloudflare)
 
-```bash
-npx wrangler login
-npx wrangler d1 create stewart-nest       # copy the database_id it prints into wrangler.jsonc
-npm run db:remote:reset                   # creates tables + seed data online (first time only)
-npm run deploy
-```
+1. **Domain:** add stewartza.co.za to Cloudflare. At GoDaddy, change the nameservers to the two Cloudflare gives you (and switch off DNSSEC at GoDaddy first if it's on). Wait for Cloudflare to say **Active**; .co.za can take a few hours.
+2. **Photos:** in the Cloudflare dashboard → R2 Object Storage → **Enable R2**. This is a one-time step; the free tier is 10 GB.
+3. Double-click **`Publish to Cloudflare.bat`**. It:
+   - logs you in to Cloudflare
+   - creates the online database and photo storage
+   - offers to **copy your laptop's data up** (logins, tasks, recipes, events)
+   - publishes the app
+   - once the domain is Active, puts it on **https://stewartza.co.za** (and www)
 
-You'll get a `https://stewart-nest.<your-account>.workers.dev` address, and you can attach your own domain in the Cloudflare dashboard. Pop-up notifications on phones need HTTPS, which Cloudflare gives you.
+Run it again any time after updating the app files to publish the new version. Your online data is left alone. A backup of what was copied up is kept in `backups/`.
 
 ## Changing things
 
