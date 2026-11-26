@@ -34,6 +34,7 @@ export function requiredPerm(path, parts, method) {
   if (p0 === 'chat') return 'chat';
   if (['stock-takes', 'trips', 'shop-lines'].includes(p0)) return 'shopping';
   if (p0 === 'items' && write) return 'shopping';
+  if (path === 'plan/needs' || path === 'plan/trip') return null; // checked below: shopping OR menu permission
   if (p0 === 'plan') return 'edit_menu';
   if (['menu', 'rotation'].includes(p0) && write) return 'edit_menu';
   if (path === 'menu/generate' || path === 'menu/backup' || path === 'menu/swap') return 'edit_menu';

@@ -95,19 +95,19 @@ export async function recipes({ req, db, path, parts, method, q, me, generateMon
   if (path === 'plan/needs' && method === 'GET') {
     const from = q.get('from'), to = q.get('to');
     if (!isDate(from) || !isDate(to) || to < from) return bad('from and to dates needed');
-    return json(await needs(db, from, to, generateMonth));
+    return json(await needs(db, from, to, generateMonth, q.get('household') !== '0'));
   }
 
   if (path === 'plan/trip' && method === 'POST') {
-    const { from, to } = await body(req);
+    const { from, to, household = true } = await body(req);
     if (!isDate(from) || !isDate(to)) return bad('from and to needed');
-    const n = await needs(db, from, to, generateMonth);
+    const n = await needs(db, from, to, generateMonth, household !== false);
     // replace an open list that has nothing in the trolley yet
     await db.prepare("DELETE FROM shop_lines WHERE trip_id IN (SELECT id FROM shop_trips WHERE status = 'open' AND id NOT IN (SELECT DISTINCT trip_id FROM shop_lines WHERE in_trolley = 1))").run();
     await db.prepare("DELETE FROM shop_trips WHERE status = 'open' AND id NOT IN (SELECT DISTINCT trip_id FROM shop_lines)").run();
     if (await db.prepare("SELECT 1 FROM shop_trips WHERE status = 'open'").first()) return bad('There is a shopping list with things already in the trolley. Finish or delete it first.');
     const budget = Number((await db.prepare("SELECT value FROM settings WHERE key = 'grocery_budget'").first())?.value || 5000);
-    const r = await db.prepare('INSERT INTO shop_trips (budget, created_by) VALUES (?, ?)').bind(budget, me.id).run();
+    const r = await db.prepare('INSERT INTO shop_trips (budget, created_by, from_date, to_date) VALUES (?, ?, ?, ?)').bind(budget, me.id, from, to).run();
     const tripId = r.meta.last_row_id;
     const stmts = n.items.filter((i) => i.buy > 0).map((i) =>
       db.prepare('INSERT INTO shop_lines (trip_id, item_id, name, plan_qty, plan_price) VALUES (?, ?, ?, ?, ?)').bind(tripId, i.item_id, i.name, i.buy, i.price));
@@ -119,7 +119,7 @@ export async function recipes({ req, db, path, parts, method, q, me, generateMon
 
 // Everything the menu between two dates needs, as packs to buy after what's in the cupboard,
 // plus household / baby items that are below their "keep in the house" level.
-async function needs(db, from, to, generateMonth) {
+async function needs(db, from, to, generateMonth, household = true) {
   // make sure every month in the range has a menu
   for (let ym = from.slice(0, 7); ym <= to.slice(0, 7);) {
     const has = await db.prepare('SELECT 1 FROM menu WHERE date LIKE ? LIMIT 1').bind(ym + '%').first();
@@ -153,7 +153,7 @@ async function needs(db, from, to, generateMonth) {
   });
   // non-food items (and anything not used by a recipe) still restock to their keep level
   const used = new Set(items.map((i) => i.item_id));
-  for (const s of stock) {
+  for (const s of household ? stock : []) {
     if (used.has(s.id) || s.on_hand >= s.par) continue;
     if (s.kind === 'grocery' || s.kind === 'meat') continue; // food comes from the menu
     const buy = Math.ceil(s.par - s.on_hand);

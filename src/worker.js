@@ -98,6 +98,7 @@ async function api(req, env, url) {
 
 async function guarded(req, env, db, url, path, parts, method, q, me) {
   const need = requiredPerm(path, parts, method);
+  if ((path === 'plan/needs' || path === 'plan/trip') && !me.perms.shopping && !me.perms.edit_menu) return bad('Not allowed on your profile', 403);
   if (need && !me.perms[need]) return bad(me.is_child ? "That's not switched on for you. Ask your dad or mom." : 'Not allowed on your profile. Ask Lee Roy (admin) to switch it on.', 403);
   const others = await othersOf(db, me);
 

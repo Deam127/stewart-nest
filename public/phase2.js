@@ -373,19 +373,82 @@ function groupBy(arr, key) {
   return [...m.entries()];
 }
 
+// ---- shopping list from the menu for a date range ----
+function menuRangeDefaults() {
+  const t = toD(todayStr());
+  return { from: ymd(new Date(t.getFullYear(), t.getMonth() + 1, 1)), to: ymd(new Date(t.getFullYear(), t.getMonth() + 2, 0)) };
+}
+function menuRangeCard(title, collapsed = false) {
+  const r = P2.range || menuRangeDefaults();
+  const inner = `<p class="muted">Adds up every ingredient for the breakfasts, lunches and suppers on the menu between these dates
+      (plus daily coffee, milk & fruit), takes off what's already in the cupboard, and adds household & baby items that are below their "keep" level.</p>
+    <div class="row"><div class="grow"><label class="f">From</label><input type="date" id="mr-from" value="${r.from}"></div>
+      <div class="grow"><label class="f">To</label><input type="date" id="mr-to" value="${r.to}"></div></div>
+    <div class="row wrap" style="margin-top:8px">
+      <button class="btn small ghost" data-mr="rest">Rest of this month</button><button class="btn small ghost" data-mr="next">Next month</button>
+      <button class="btn small ghost" data-mr="2w">Next 2 weeks</button><button class="btn small ghost" data-mr="1w">Next week</button></div>
+    <label class="row" style="margin-top:8px"><input type="checkbox" id="mr-hh"> Also restock household, toiletries & baby items below their "keep" level</label>
+    <div id="mr-preview" class="muted" style="margin-top:8px"></div>
+    <div class="row wrap" style="margin-top:8px"><button class="btn ghost" id="mr-check">See what it comes to</button><button class="btn" id="mr-go">🛒 Make list from the menu</button></div>`;
+  return collapsed ? `<details class="card"><summary><strong>🗓️ ${title}</strong></summary>${inner}</details>` : `<div class="card"><strong>🗓️ ${title}</strong>${inner}</div>`;
+}
+function wireMenuRange(done) {
+  if (!$('#mr-go')) return;
+  const today = todayStr(), t = toD(today);
+  const set = (a, b) => { $('#mr-from').value = a; $('#mr-to').value = b; P2.range = { from: a, to: b }; $('#mr-preview').textContent = ''; };
+  $$('[data-mr]').forEach((b) => b.onclick = () => {
+    const k = b.dataset.mr;
+    if (k === 'rest') set(today, ymd(new Date(t.getFullYear(), t.getMonth() + 1, 0)));
+    if (k === 'next') { const r = menuRangeDefaults(); set(r.from, r.to); }
+    if (k === '2w') set(today, addDays(today, 13));
+    if (k === '1w') set(today, addDays(today, 6));
+  });
+  ['mr-from', 'mr-to'].forEach((id) => ($('#' + id).onchange = () => { P2.range = { from: $('#mr-from').value, to: $('#mr-to').value }; $('#mr-preview').textContent = ''; }));
+  const range = () => ({ from: $('#mr-from').value, to: $('#mr-to').value });
+  // household restock: on for a month or longer, off for short top-up shops (unless ticked)
+  const autoHH = () => { if (P2.rangeHHSet) return; const { from, to } = range(); $('#mr-hh').checked = from && to && (toD(to) - toD(from)) / 86400000 >= 27; };
+  autoHH();
+  $('#mr-hh').onchange = () => { P2.rangeHHSet = true; $('#mr-preview').textContent = ''; };
+  $$('[data-mr]').forEach((b) => b.addEventListener('click', autoHH));
+  ['mr-from', 'mr-to'].forEach((id) => $('#' + id).addEventListener('change', autoHH));
+  $('#mr-check').onclick = async () => {
+    const { from, to } = range(); if (!from || !to || to < from) return toast('Pick a From date before the To date');
+    $('#mr-preview').textContent = 'Working it out…';
+    const n = await api(`plan/needs?from=${from}&to=${to}&household=${$('#mr-hh').checked ? 1 : 0}`);
+    const buy = n.items.filter((i) => i.buy > 0);
+    const sh = n.days < 28 ? n.days / 30.4 : Math.max(1, Math.round(n.days / 30.4));
+    const gB = Math.round(Number(S.settings.grocery_budget || 5000) * sh), mB = Math.round(Number(S.settings.meat_budget || 2000) * sh);
+    $('#mr-preview').innerHTML = `${n.days} days · <strong>${buy.length} items</strong> to buy · groceries & household <strong class="${n.totals.groceries > gB ? 'low' : ''}">${R(n.totals.groceries)}</strong> of ~${R(gB)} · meat <strong class="${n.totals.meat > mB ? 'low' : ''}">${R(n.totals.meat)}</strong> of ~${R(mB)}
+      ${n.no_ingredients.length ? `<br>⚠️ No ingredients entered yet for: ${n.no_ingredients.map(esc).join(', ')}` : ''}`;
+  };
+  $('#mr-go').onclick = async () => {
+    const { from, to } = range(); if (!from || !to || to < from) return toast('Pick a From date before the To date');
+    try {
+      const r = await api('plan/trip', { body: { from, to, household: $('#mr-hh').checked } });
+      toast(`Shopping list ready: ${r.lines} items for ${short(from)} – ${short(to)}`);
+      done();
+    } catch (e) { toast(e.message); }
+  };
+}
+
 async function shopList() {
   const d = await api('trips/current');
   const el = $('#shop-body');
   if (!d.trip) {
-    el.innerHTML = `<div class="card"><strong>No shopping list yet</strong>
-      <p class="muted">Do a stock take first so the list only has what you actually need. Or make a list straight from the last counts.</p>
+    el.innerHTML = `${menuRangeCard('No shopping list yet: make one from the menu')}
+      <div class="card"><strong>Or start from the cupboard</strong>
+      <p class="muted">Do a stock take first so the list only has what you actually need, or make a list straight from the last counts (everything below its "keep" level).</p>
       <div class="row wrap"><a class="btn" href="#shop/stock" style="text-decoration:none">📋 Start stock take</a>
       <button class="btn ghost" id="sl-new">Make list from last counts</button></div></div>`;
     $('#sl-new').onclick = async () => { await api('trips/new', { body: {} }); shopList(); };
+    wireMenuRange(shopList);
     return;
   }
   const lines = d.lines;
-  const gBudget = d.budgets.grocery_budget || 5000, mBudget = d.budgets.meat_budget || 2000;
+  // a list for part of the month gets that part of the monthly budget
+  const tripDays = d.trip.from_date && d.trip.to_date ? Math.round((toD(d.trip.to_date) - toD(d.trip.from_date)) / 86400000) + 1 : null;
+  const share = tripDays && tripDays < 28 ? tripDays / 30.4 : 1;
+  const gBudget = Math.round((d.budgets.grocery_budget || 5000) * share), mBudget = Math.round((d.budgets.meat_budget || 2000) * share);
   const isMeat = (l) => l.kind === 'meat';
   const sum = (f, pick) => lines.filter(pick).reduce((s, l) => s + f(l), 0);
   const actual = (l) => (l.qty ?? l.plan_qty) * (l.price ?? l.plan_price ?? 0);
@@ -408,7 +471,7 @@ async function shopList() {
   const gS = suggest(g, gBudget, (l) => !isMeat(l)), mS = suggest(m, mBudget, isMeat);
   const totalBox = (label, t, budget, sug) => `<div class="spread"><span>${label}</span><strong>${R(t.trolley)} <span class="muted">in trolley</span></strong></div>
     <div class="spread muted"><span>Projected at the till</span><span class="${t.proj > budget ? 'low' : ''}">${R(t.proj)} / ${R(budget)}</span></div>
-    ${sug.length ? `<div class="muted" style="margin-top:4px">💡 Over by ${R(t.proj - budget)}. Leave for next time: ${sug.map((l) => `<a href="#" data-skipsug="${l.id}">${esc(l.name)}</a>`).join(', ')}</div>` : ''}`;
+    ${sug.length ? `<div class="muted" style="margin-top:4px">💡 Over by ${R(t.proj - budget)}. Leave for next time: ${sug.slice(0, 8).map((l) => `<a href="#" data-skipsug="${l.id}">${esc(l.name)}</a>`).join(', ')}${sug.length > 8 ? ` and ${sug.length - 8} more` : ''}</div>` : ''}`;
   const remaining = lines.filter((l) => !l.in_trolley && !l.skipped).length;
   const show = P2.listFilter || 'todo';
   const shown = lines.filter((l) => show === 'all' || (!l.in_trolley && !l.skipped) || (P2.keep || new Set()).has(l.id));
@@ -416,7 +479,8 @@ async function shopList() {
       ${totalBox('🛒 Groceries & household', g, gBudget, gS)}
       <hr style="border:0;border-top:1px solid var(--line)">
       ${totalBox('🥩 Meat', m, mBudget, mS)}
-      <div class="muted" style="margin-top:4px">${remaining} still to get · ${lines.filter((l) => l.in_trolley).length} in trolley</div></div>
+      <div class="muted" style="margin-top:4px">${remaining} still to get · ${lines.filter((l) => l.in_trolley).length} in trolley
+        ${tripDays ? `<br>🗓️ For ${short(d.trip.from_date)} – ${short(d.trip.to_date)} (${tripDays} days)${share < 1 ? ` · budget is ${tripDays} days' share of the month` : ''}` : ''}</div></div>
     <div class="row" style="margin-bottom:8px"><div class="seg">${[['todo', 'Still to get'], ['all', 'Everything']].map(([k, l]) => `<button data-lf="${k}" class="${show === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="grow"></span><button class="btn small ghost" id="sl-scan">📷 Scan</button></div>
     ${groupBy(shown, 'section').map(([s, list]) => `<h3>${esc(s === 'Other' && list.every((l) => !l.item_id) ? 'Extras' : s)}</h3><div class="card">${list.map((l) => `
@@ -437,7 +501,8 @@ async function shopList() {
       <button class="btn small" style="margin-top:8px" id="x-add">Add to trolley</button></details>
     <div class="card"><label class="f">Shop</label><input type="text" id="sl-shop" placeholder="e.g. Checkers Key West" value="${esc(d.trip.shop || '')}">
       <button class="btn" style="margin-top:10px" id="sl-finish">✅ Finish shop: update stock & prices</button>
-      <button class="btn small danger" style="margin-top:10px" id="sl-del">Delete this list</button></div>`;
+      <button class="btn small danger" style="margin-top:10px" id="sl-del">Delete this list</button></div>
+    ${lines.some((l) => l.in_trolley) ? '' : menuRangeCard('Rebuild this list from the menu', true)}`;
   const reload = () => shopList();
   P2.keep = P2.keep || new Set();
   $$('[data-lf]').forEach((b) => b.onclick = () => { P2.listFilter = b.dataset.lf; P2.keep = new Set(); reload(); });
@@ -468,6 +533,7 @@ async function shopList() {
     toast(`Shop done: ${R(r.spent)}`); P2.keep = new Set(); location.hash = '#shop/history';
   };
   $('#sl-del').onclick = async () => { if (confirm('Delete this shopping list?')) { await del('trips/' + d.trip.id); reload(); } };
+  wireMenuRange(reload);
 }
 
 async function shopHistory() {

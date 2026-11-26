@@ -222,4 +222,9 @@ export const UPGRADES = {
     ...ISLAMIC.map(([a, b, t, notes, remind]) => `INSERT INTO events (title, category, who, start_date, end_date, remind, notes, layer, created_by)
        VALUES (${q(t)}, 'faith', '', '${a}', ${b ? `'${b}'` : 'NULL'}, '${remind || 'none'}', ${q(notes)}, 'islam', 'lee-roy')`),
   ],
+  9: [
+    // a shopping list can cover just part of the month (from/to); budgets are shown pro-rata for those days
+    'ALTER TABLE shop_trips ADD COLUMN from_date TEXT',
+    'ALTER TABLE shop_trips ADD COLUMN to_date TEXT',
+  ],
 };
