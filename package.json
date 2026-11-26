@@ -4,13 +4,14 @@
   "description": "The Stewart Nest — family organiser: meals, tasks, notes, rewards",
   "scripts": {
     "setup": "npm run db:reset",
-    "dev": "wrangler dev --ip 0.0.0.0 --port 8787",
+    "dev": "wrangler dev --ip 0.0.0.0 --port 8787 --var LOCAL_DEV:1",
     "db:reset": "wrangler d1 execute stewart-nest --local --yes --file=schema.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/family.sql && wrangler d1 execute stewart-nest --local --yes --file=phase2.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/phase2.sql",
     "db:remote:reset": "wrangler d1 execute stewart-nest --remote --yes --file=schema.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/recipes.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/family.sql && wrangler d1 execute stewart-nest --remote --yes --file=phase2.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/phase2.sql",
     "deploy": "wrangler deploy",
     "db:phase2": "wrangler d1 execute stewart-nest --local --yes --file=phase2.sql && wrangler d1 execute stewart-nest --local --yes --file=seed/phase2.sql",
     "db:remote:phase2": "wrangler d1 execute stewart-nest --remote --yes --file=phase2.sql && wrangler d1 execute stewart-nest --remote --yes --file=seed/phase2.sql",
-    "publish": "node scripts/publish.mjs"
+    "publish": "node scripts/publish.mjs",
+    "check": "node scripts/check.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.168.0"

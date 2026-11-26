@@ -1,7 +1,7 @@
 // The Stewart Nest — Phase 2 API: chat, fun ideas, Madilea's lists, inventory & photos,
 // stock take → shopping list → trolley, workouts.
 import { mediaLabel } from './media.js';
-import { json, bad, isDate, doneDay, addDays, mondayOf, saToday, fmtShort, body, notify,
+import { json, bad, isDate, doneDay, pickToday, addDays, mondayOf, saToday, fmtShort, body, notify,
   ensureTemplateTasks, decorateTask, familyIds } from './util.js';
 
 const num = (v, d = null) => (v === '' || v == null || isNaN(Number(v)) ? d : Number(v));
@@ -287,7 +287,7 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
 
   // ================= workouts =================
   if (path === 'workouts' && method === 'GET') {
-    const today = isDate(q.get('today')) ? q.get('today') : saToday();
+    const today = pickToday(q.get('today'));
     await ensureTemplateTasks(db, today);
     const week = mondayOf(today);
     const [plans, tasks, recent] = await db.batch([

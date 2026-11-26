@@ -3,3 +3,11 @@ node_modules/
 .dev.vars
 *.log
 backups/
+# Android app: only the settings file is kept in git; never the signing key or built apps
+android/*
+!android/twa-manifest.json
+*.keystore
+*.jks
+*.apk
+*.aab
+phone-log.txt

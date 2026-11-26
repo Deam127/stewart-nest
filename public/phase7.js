@@ -36,7 +36,7 @@ function bubble(m, prev) {
       ${m.deleted ? '<i class="muted">🚫 message deleted</i>' : `${m.text ? esc(m.text).replace(/\n/g, '<br>') : ''}
       ${m.photo_key ? mediaHtml(m.photo_key) : ''}
       ${m.card ? cardHtml(m) : ''}`}
-      <div class="time">${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}${mine && !m.deleted ? ' ' + ticks(m) : ''}</div>
+      <div class="time">${isPinned(m.id) ? '📌 ' : ''}${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}${mine && !m.deleted ? ' ' + ticks(m) : ''}</div>
       ${chips ? `<div class="rxs">${chips}</div>` : ''}
     </div>`;
 }
@@ -179,7 +179,7 @@ function actions(id) {
   const menu = document.createElement('div');
   menu.className = 'msg-menu';
   menu.innerHTML = `<div class="quick">${QUICK.map((e) => `<button data-q="${e}">${e}</button>`).join('')}<button data-more title="More emoji">＋</button></div>
-    <div class="acts"><button data-reply>↩️ Reply</button>${Object.keys(C7.reactions[id] || {}).length ? '<button data-who>👀 Reactions</button>' : ''}${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete for everyone</button>' : ''}${S.me.is_admin ? '<button data-sel>☑️ Select</button>' : ''}<button data-close>✕</button></div>`;
+    <div class="acts"><button data-reply>↩️ Reply</button>${Object.keys(C7.reactions[id] || {}).length ? '<button data-who>👀 Reactions</button>' : ''}${m.user_id === S.me.id ? '<button data-seen>👁 Seen by</button>' : ''}<button data-pin>${isPinned(id) ? '📌 Unpin' : '📌 Pin'}</button>${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete for everyone</button>' : ''}${S.me.is_admin ? '<button data-sel>☑️ Select</button>' : ''}<button data-close>✕</button></div>`;
   document.body.appendChild(menu);
   const el = $('#m-' + id); const r = el.getBoundingClientRect();
   menu.style.top = Math.max(60, Math.min(window.innerHeight - 140, r.top - 100)) + 'px';
@@ -187,6 +187,8 @@ function actions(id) {
   $('[data-more]', menu).onclick = () => { menu.remove(); emojiPicker((e) => react(id, e)); };
   $('[data-reply]', menu).onclick = () => { menu.remove(); startReply(m); };
   $('[data-who]', menu) && ($('[data-who]', menu).onclick = () => { menu.remove(); whoReacted(id); });
+  $('[data-seen]', menu) && ($('[data-seen]', menu).onclick = () => { menu.remove(); seenBy(m); });
+  $('[data-pin]', menu).onclick = async () => { menu.remove(); try { const r = await api(`chat/${id}/pin`, { body: {} }); toast(r.pinned ? 'Pinned 📌' : 'Unpinned'); await refresh(); } catch (e) { toast(e.message); } };
   $('[data-copy]', menu) && ($('[data-copy]', menu).onclick = async () => { menu.remove(); try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { /* no clipboard */ } });
   $('[data-delm]', menu) && ($('[data-delm]', menu).onclick = async () => { menu.remove(); if (!confirm(`Delete this ${m.photo_key ? { audio: 'voice note', video: 'video', photo: 'photo' }[mediaKind(m.photo_key)] : 'message'} for everyone?`)) return; await deleteForAll([id]); });
   $('[data-sel]', menu) && ($('[data-sel]', menu).onclick = () => { menu.remove(); startSelect(id); });
@@ -387,7 +389,8 @@ async function refresh(full = false) {
       if (document.hidden) { /* badge check sends the phone notification */ }
       else Alerts.chatAlert({ id: newest.id, name: newest.name, body: newest.text || (newest.photo_key ? '📷 Photo' : '📌 Shared something') }, true);
     }
-    C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3;
+    C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3; C7.pins = d.pins || [];
+    drawPins();
     C7.last = C7.msgs.length ? C7.msgs[C7.msgs.length - 1].id : 0;
     drawAll();
   } catch { /* offline */ }
@@ -399,7 +402,8 @@ ROUTES.chat = async () => {
   if (window.Alerts && C7.last) Alerts.markChat(C7.last); // opening the chat counts as seeing everything
   $('#chat-n').hidden = true;
   $('#view').innerHTML = `<div class="wa-head"><img src="/icon.svg" alt=""><div><strong>Stewart family</strong>
-      <div class="muted">${S.users.map((u) => esc(u.name)).join(', ')}</div></div>${S.me.is_admin ? '<button class="btn small ghost" id="c-select" style="margin-left:auto" title="Select messages to delete">☑️ Select</button>' : ''}</div>
+      <div class="muted">${S.users.map((u) => esc(u.name)).join(', ')}</div></div><button class="btn small ghost" id="c-find" style="margin-left:auto" title="Search the chat">🔍</button>${S.me.is_admin ? '<button class="btn small ghost" id="c-select" title="Select messages to delete">☑️ Select</button>' : ''}</div>
+    <div id="c-pins"></div>
     <div class="chat wa" id="chat"></div>
     <div class="composer wa">
       <div class="reply-bar" id="c-reply" hidden></div>
@@ -420,6 +424,8 @@ ROUTES.chat = async () => {
   $('#c-send').onclick = () => sendMsg();
   $('#c-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing && !e.repeat) { e.preventDefault(); sendMsg(); } };
   $('#c-select') && ($('#c-select').onclick = () => startSelect());
+  $('#c-find').onclick = chatSearch;
+  drawPins();
   $('#c-att').onclick = attachMenu;
   $('#c-mic').onclick = recordVoice;
   $('#c-cam').onclick = async () => { const f = await pickPhotos(true); if (f.length) photoPreview(f); };
@@ -620,4 +626,57 @@ async function recordVoice() {
   window.addEventListener('hashchange', cancel); // leaving the chat throws the recording away
   rec.start(250);
   navigator.vibrate?.(40);
+}
+
+// ---------- pinned messages, search, seen by ----------
+const isPinned = (id) => (C7.pins || []).some((p) => p.id === id);
+const pinText = (p) => p.text || (p.card ? (p.card.q || p.card.title || '📌 Shared something') : p.photo_key ? mediaWord(p.photo_key) : '');
+function jumpTo(id) {
+  const t = $('#m-' + id);
+  if (!t) return false;
+  t.scrollIntoView({ block: 'center', behavior: 'smooth' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1400);
+  return true;
+}
+function drawPins() {
+  const bar = $('#c-pins'); if (!bar) return;
+  const pins = C7.pins || [];
+  bar.innerHTML = pins.length ? `<button class="pin-bar" id="pin-open"><span>📌</span><span class="grow"><strong>${esc(pins[0].name)}</strong> ${esc(pinText(pins[0]).slice(0, 80))}</span>${pins.length > 1 ? `<span class="muted">+${pins.length - 1}</span>` : ''}</button>` : '';
+  $('#pin-open') && ($('#pin-open').onclick = () => {
+    if (pins.length === 1 && jumpTo(pins[0].id)) return;
+    const s = sheet(`<div class="spread"><h2 style="margin:0">📌 Pinned</h2><button class="btn small ghost" data-close>Close</button></div>
+      <div class="card">${pins.map((p) => `<div class="item" data-pj="${p.id}"><div class="grow"><div class="nm">${esc(pinText(p))}</div>
+        <div class="muted">${esc(p.name)} · ${new Date(p.created_at + 'Z').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}${p.pinned_by_name ? ' · pinned by ' + esc(p.pinned_by_name) : ''}</div></div></div>`).join('')}</div>`);
+    $('[data-close]', s).onclick = () => s.remove();
+    $$('[data-pj]', s).forEach((el) => el.onclick = () => { if (jumpTo(Number(el.dataset.pj))) s.remove(); else toast('That message is older than what is loaded here'); });
+  });
+}
+function chatSearch() {
+  const s = sheet(`<div class="spread"><h2 style="margin:0">🔍 Search the chat</h2><button class="btn small ghost" data-close>Close</button></div>
+    <input type="search" id="cs-q" placeholder="Type a word, e.g. school, wifi, braai" style="margin-top:8px">
+    <div id="cs-res" class="card" style="margin-top:8px"><div class="muted">Searches every message, also old ones.</div></div>`);
+  $('[data-close]', s).onclick = () => s.remove();
+  let timer;
+  $('#cs-q', s).oninput = (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = e.target.value.trim();
+      if (q.length < 2) { $('#cs-res', s).innerHTML = '<div class="muted">Type at least 2 letters.</div>'; return; }
+      try {
+        const res = await api('chat/search?q=' + encodeURIComponent(q));
+        const mark = (t) => esc(t).replace(new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (x) => `<mark>${x}</mark>`);
+        $('#cs-res', s).innerHTML = res.map((m) => `<div class="item" data-cj="${m.id}"><div class="grow"><div class="nm">${mark(m.text || pinText(m))}</div>
+          <div class="muted">${esc(m.emoji || '')} ${esc(m.name)} · ${new Date(m.created_at + 'Z').toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></div></div>`).join('') || '<div class="empty">Nothing found</div>';
+        $$('[data-cj]', s).forEach((el) => el.onclick = () => { if (jumpTo(Number(el.dataset.cj))) s.remove(); else toast('Older message: shown here only'); });
+      } catch (err) { toast(err.message); }
+    }, 250);
+  };
+  setTimeout(() => $('#cs-q', s).focus(), 100);
+}
+function seenBy(m) {
+  const others = S.users.filter((u) => u.id !== S.me.id);
+  const read = new Set(C7.reads.filter((r) => r.last_id >= m.id).map((r) => r.user_id));
+  const s = sheet(`<div class="spread"><h2 style="margin:0">👁 Seen by</h2><button class="btn small ghost" data-close>Close</button></div>
+    <div class="card">${others.map((u) => `<div class="item"><div class="thumb">${esc(u.emoji || '🙂')}</div><div class="grow"><div class="nm">${esc(u.name)}</div></div>
+      <div>${read.has(u.id) ? '<span class="tk blue">✓✓</span> seen' : '<span class="muted">not yet</span>'}</div></div>`).join('')}</div>`);
+  $('[data-close]', s).onclick = () => s.remove();
 }

@@ -1,7 +1,44 @@
 // The Stewart Nest — service worker: phone notifications (also when the app is closed), the count on the
-// app icon, and opening the app when a notification is tapped.
-self.addEventListener('install', () => self.skipWaiting());
+// app icon, opening the app when a notification is tapped, and opening without signal.
+//
+// Offline: with signal everything comes fresh from the server (so a new version shows straight away);
+// a copy is kept, and used only when there's no connection.
+const SHELL = 'nest-shell';
+const API = 'nest-api'; // cleared when someone logs out
+const SHELL_FILES = ['/', '/style.css', '/alerts.js', '/app.js', '/phase2.js', '/phase3.js', '/phase4.js', '/phase5.js', '/phase6.js',
+  '/phase7.js', '/phase8.js', '/manifest.webmanifest', '/icon.svg', '/logo.svg', '/mark.svg', '/icon-192.png'];
+// screens worth showing from memory when offline (read-only)
+const OFFLINE_API = /^\/api\/(me|users|settings|month|day|tasks|menu|recipes|catalog|trips\/current|items|events|chat|rewards|baby|notifications|lists)(\?|$)/;
+
+self.addEventListener('install', (e) => e.waitUntil((async () => {
+  try { const c = await caches.open(SHELL); await Promise.all(SHELL_FILES.map((f) => c.add(f).catch(() => {}))); } catch { /* ignore */ }
+  await self.skipWaiting();
+})()));
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+
+async function freshThenCopy(req, cacheName, fallbackUrl) {
+  try {
+    const res = await fetch(req);
+    if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(cacheName).then((c) => c.put(req, copy)).catch(() => {}); }
+    return res;
+  } catch (err) {
+    const hit = (await caches.match(req)) || (fallbackUrl && (await caches.match(fallbackUrl)));
+    if (hit) return hit;
+    throw err;
+  }
+}
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) {
+    if (OFFLINE_API.test(url.pathname + url.search.replace(/^\?.*/, '?'))) e.respondWith(freshThenCopy(req, API));
+    return; // photos, uploads and the rest go straight to the network
+  }
+  if (req.mode === 'navigate') return e.respondWith(freshThenCopy(req, SHELL, '/'));
+  if (SHELL_FILES.includes(url.pathname) || /\.(js|css|svg|png|webmanifest)$/.test(url.pathname)) e.respondWith(freshThenCopy(req, SHELL));
+});
 
 // what this phone has already shown, so one push for a chat message doesn't re-show an old notification
 async function lastShown() {

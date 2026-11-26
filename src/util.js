@@ -16,6 +16,8 @@ export const saToday = () => new Date(Date.now() + 2 * 3600e3).toISOString().sli
 // The day a task counts as done. Only someone who may manage other people's tasks (Mom/Dad) can record an
 // earlier day, e.g. "she did it yesterday". Everyone else's tick counts today, so late stays late. Never in the future.
 export const doneDay = (me, date) => (me.perms?.assign_tasks && isDate(date) && date <= saToday() ? date : saToday());
+// The phone may say what "today" is (its own clock), but only within a day of the server's date
+export const pickToday = (t) => { const s = saToday(); return isDate(t) && Math.abs(dayDiff(s, t)) <= 1 ? t : s; };
 export const fmtShort = (s) => toD(s).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export async function sha256(text) {

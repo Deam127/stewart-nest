@@ -1,7 +1,7 @@
 // The Stewart Nest — API (Cloudflare Worker + D1)
 // Static files in /public are served by Workers Assets; everything under /api lands here.
 
-import { json, bad, isDate, doneDay, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask, schoolContext, templateApplies } from './util.js';
+import { json, bad, isDate, doneDay, pickToday, addDays, dayDiff, weekday, mondayOf, saToday, fmtShort, body, notify, othersOf, ensureTemplateTasks, decorateTask, schoolContext, templateApplies } from './util.js';
 import { ensureSchema, authPublic, authPrivate, currentUser } from './auth.js';
 import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
@@ -13,6 +13,11 @@ import { kidView } from './util.js';
 import { phase2 } from './phase2.js';
 import { media as mediaApi } from './media.js';
 import { pushApi, withRequest } from './push.js';
+import { runScheduled } from './schedule.js';
+import ASSET_LINKS from './assetlinks.json'; // written by scripts/build-android.mjs (the Android app's key fingerprint)
+import { housekeeping } from './housekeeping.js';
+import { baby } from './baby.js';
+import { treats } from './treats.js';
 
 const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge', 'Toilet',
   'Yard', 'Dogs', 'Madilea', 'Car', 'Workouts', 'Groceries', 'Other'];
@@ -20,7 +25,7 @@ const AREAS = ['Kitchen', 'Bathroom', 'Main bedroom', 'Second bedroom', 'Lounge'
 const BREAKFASTS = { 1: 'b1', 2: 'b2', 3: 'b3', 4: 'b4', 5: 'b5', 6: 'b6', 7: 'b7' };
 const LUNCHES = { 1: 'l_tt', 2: 'l_em', 3: 'l_tt', 4: 'l_nd', 5: 'l_lo', 6: 'l_pj', 7: 'l_rc' };
 
-async function generateMonth(db, ym, season, overwrite) {
+export async function generateMonth(db, ym, season, overwrite) {
   const [y, m] = ym.split('-').map(Number);
   const first = `${ym}-01`;
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -71,6 +76,8 @@ const morningCount = async (db, t) => (await db.prepare("SELECT COUNT(*) AS n FR
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    // lets Android trust the Nest app, so it opens without the browser bar
+    if (url.pathname === '/.well-known/assetlinks.json') return new Response(JSON.stringify(ASSET_LINKS), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
       const res = await withRequest(env, ctx, url.origin, () => api(req, env, url));
@@ -81,9 +88,16 @@ export default {
       }
       return res;
     } catch (e) {
-      console.error(e);
-      return bad('Something went wrong: ' + e.message, 500);
+      console.error('API error', req.method, url.pathname, e && e.stack || e);
+      return bad('Something went wrong. Please try again.', 500); // details stay in the server log
     }
+  },
+  // Cloudflare's timer (wrangler.jsonc "triggers")
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(withRequest(env, ctx, 'https://stewartza.co.za', async () => {
+      try { await ensureSchema(env.DB); console.log('timer:', (await runScheduled(env)).join(', ') || 'nothing due'); }
+      catch (e) { console.error('timer failed', e && e.stack || e); }
+    }));
   },
 };
 
@@ -121,7 +135,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
   if (path === 'settings') {
     if (method === 'PUT') {
       const b = await body(req);
-      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget', 'islam_family', 'islam_method', 'islam_school', 'chat_task_posts'];
+      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget', 'islam_family', 'islam_method', 'islam_school', 'chat_task_posts', 'video_keep_months'];
       const stmts = Object.entries(b).filter(([k]) => allowed.includes(k)).map(([k, v]) =>
         db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(k, String(v)));
       if (stmts.length) await db.batch(stmts);
@@ -245,7 +259,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
 
   // ----- tasks -----
   if (path === 'tasks' && method === 'GET') {
-    const today = isDate(q.get('today')) ? q.get('today') : saToday();
+    const today = pickToday(q.get('today'));
     const date = isDate(q.get('date')) ? q.get('date') : today;
     await ensureTemplateTasks(db, today);
     const user = q.get('user'); // optional filter
@@ -362,7 +376,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
 
   // ----- weekly rewards & accountability -----
   if (path === 'rewards' && method === 'GET') {
-    const today = isDate(q.get('today')) ? q.get('today') : saToday();
+    const today = pickToday(q.get('today'));
     await ensureTemplateTasks(db, today);
     const week = isDate(q.get('week')) ? mondayOf(q.get('week')) : mondayOf(today);
     const end = addDays(week, 6);
@@ -428,6 +442,12 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
 
   const pu = await pushApi({ req, env, db, path, method, me });
   if (pu) return pu;
+  const hk = await housekeeping({ req, env, db, path, parts, method, me });
+  if (hk) return hk;
+  const bb = await baby({ req, db, path, parts, method, q, me });
+  if (bb) return bb;
+  const tr = await treats({ req, db, path, parts, method, q, me });
+  if (tr) return tr;
   const md = await mediaApi({ req, env, path, parts, method });
   if (md) return md;
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });

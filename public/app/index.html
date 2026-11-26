@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Get the Nest app · The Stewart Nest</title>
+  <link rel="icon" href="/favicon-48.png">
+  <meta name="theme-color" content="#2f5d50">
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f6f3ee; color: #263238; }
+    main { max-width: 560px; margin: 0 auto; padding: 24px 18px 48px; }
+    .logo { display: block; width: 120px; margin: 8px auto 10px; }
+    h1 { text-align: center; font-size: 1.5rem; margin: 0 0 4px; color: #2f5d50; }
+    .sub { text-align: center; color: #6b7a7a; margin: 0 0 22px; }
+    .card { background: #fff; border-radius: 14px; padding: 16px 18px; margin: 14px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .btn { display: block; text-align: center; background: #2f5d50; color: #fff; text-decoration: none; font-weight: 700; font-size: 1.1rem; padding: 15px; border-radius: 12px; }
+    .btn:active { opacity: .85; }
+    .muted { color: #6b7a7a; font-size: .9rem; }
+    ol { padding-left: 20px; margin: 8px 0 0; } li { margin: 6px 0; }
+    h2 { font-size: 1.05rem; margin: 0 0 6px; }
+    a { color: #2f5d50; }
+  </style>
+</head>
+<body>
+<main>
+  <img class="logo" src="/icon-maskable-512.png" alt="">
+  <h1>The Stewart Nest app</h1>
+  <p class="sub">For Android phones (Android 7 or newer)</p>
+
+  <div class="card">
+    <a class="btn" href="/app/stewart-nest.apk" download="Stewart Nest.apk">⬇️ Download the app</a>
+    <p class="muted" id="ver" style="text-align:center;margin:8px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Installing it</h2>
+    <ol>
+      <li>Tap <strong>Download the app</strong>, then open the file when it's done (or find it in <em>Files → Downloads</em>).</li>
+      <li>If the phone says it can't install apps from this source: tap <strong>Settings</strong>, switch on <strong>Allow from this source</strong>, then go back.</li>
+      <li>Tap <strong>Install</strong>. If Play Protect warns that it doesn't know the app: <strong>More details → Install anyway</strong>.</li>
+      <li>Open <strong>Nest</strong>, log in, allow notifications, then <strong>More → Switch on phone notifications</strong>.</li>
+    </ol>
+    <p class="muted">Already have it? Installing a newer download over it keeps everything.</p>
+  </div>
+
+  <div class="card">
+    <h2>iPhone</h2>
+    <p class="muted" style="margin:0">Open <a href="/">stewartza.co.za</a> in Safari, tap <strong>Share</strong> → <strong>Add to Home Screen</strong>.</p>
+  </div>
+
+  <p class="muted" style="text-align:center"><a href="/">← Back to the Nest</a></p>
+</main>
+<script>
+  fetch('/app/version.json', { cache: 'no-store' }).then((r) => r.ok ? r.json() : null).then((v) => {
+    if (v) document.getElementById('ver').textContent = `Version ${v.version} · ${(v.bytes / 1048576).toFixed(1)} MB · built ${v.built}`;
+  }).catch(() => {});
+</script>
+</body>
+</html>

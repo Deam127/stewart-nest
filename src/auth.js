@@ -14,13 +14,32 @@ async function syncBirthday(db, id, name, birthday, by) {
   if (ev) await db.prepare('UPDATE events SET start_date = ?, title = ? WHERE id = ?').bind(start, title, ev.id).run();
   else await db.prepare("INSERT INTO events (title, category, who, start_date, repeat, remind, person, created_by) VALUES (?, 'birthday', '', ?, 'yearly', 'week', ?, ?)").bind(title, start, id, by).run();
 }
+// profile colour and emoji end up in the page, so only allow what they are meant to be
+const okColour = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : null);
+const okEmoji = (e) => (typeof e === 'string' && e.trim() && [...e.trim()].length <= 8 && !/[<>"'&]/.test(e) ? e.trim() : null);
+const parsePrefs = (p) => { try { return JSON.parse(p || '{}') || {}; } catch { return {}; } };
+const okTime = (t) => (typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t) ? t : null);
+// what a person can set for themselves (or the admin for them)
+const PREF_FLAGS = ['islam', 'notify_chat', 'notify_other', 'week_ahead'];
+function mergePrefs(old, b) {
+  const out = { ...old };
+  for (const k of PREF_FLAGS) if (typeof b[k] === 'boolean') out[k] = b[k];
+  if ('quiet_from' in b || 'quiet_to' in b) {
+    const from = okTime(b.quiet_from), to = okTime(b.quiet_to);
+    if (from && to) { out.quiet_from = from; out.quiet_to = to; } else { delete out.quiet_from; delete out.quiet_to; }
+  }
+  return out;
+}
 const okBirthday = (b) => /^(\d{4}-)?\d{2}-\d{2}$/.test(b || '');
 const MIN_LEN = 6;
 // The laptop (and phones on the home Wi-Fi) may set the admin's first password freely.
 // Online, that first password also needs the setup code (Cloudflare secret SETUP_CODE), so a stranger
 // can't claim the admin profile of a freshly published, empty database.
 const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/;
-const isLocal = (url) => LOCAL_HOST.test(url.hostname);
+// Running on the laptop? "npm run dev" (Start Stewart Nest.bat) sets LOCAL_DEV=1. Once the site's address is in
+// wrangler.jsonc, local requests carry that address, so the host name alone can't tell. The live site never has LOCAL_DEV.
+// (npm run check sends x-nest-test-online to try the online rules on the laptop.)
+const isLocal = (url, env, req) => (env?.LOCAL_DEV === '1' && req?.headers.get('x-nest-test-online') !== '1') || (!env?.LOCAL_DEV && LOCAL_HOST.test(url.hostname));
 const sameText = (a, b) => {
   a = String(a ?? ''); b = String(b ?? '');
   let diff = a.length ^ b.length;
@@ -47,9 +66,16 @@ const NEED_COLUMNS = {
   task_templates: { when_school: "TEXT NOT NULL DEFAULT 'any'", routine: 'TEXT' },
   tasks: { routine: 'TEXT' },
   shop_trips: { from_date: 'TEXT', to_date: 'TEXT' },
-  chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT', client_id: 'TEXT' },
+  chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT', client_id: 'TEXT', pinned: 'INTEGER NOT NULL DEFAULT 0', pinned_by: 'TEXT' },
 };
 const NEED_TABLES = [
+  `CREATE TABLE IF NOT EXISTS baby_log (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, detail TEXT, amount REAL, at TEXT NOT NULL,
+     note TEXT, user_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  'CREATE INDEX IF NOT EXISTS baby_log_at ON baby_log (at)',
+  `CREATE TABLE IF NOT EXISTS treats (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, cost INTEGER NOT NULL, emoji TEXT,
+     active INTEGER NOT NULL DEFAULT 1, created_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS treat_buys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, treat_id INTEGER, title TEXT NOT NULL,
+     cost INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'asked', handled_by TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), handled_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, user_id TEXT NOT NULL, p256dh TEXT, auth TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   'CREATE TABLE IF NOT EXISTS chat_votes (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, opt INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))',
@@ -151,10 +177,10 @@ export async function currentUser(req, db) {
   return { ...me, prefs: p, perms: permsFor(u), is_child: !u.is_parent && !u.is_admin };
 }
 
-async function startSession(db, url, userId, extra = {}) {
+async function startSession(db, url, userId, extra = {}, env = null) {
   const token = randomHex(32);
   await db.prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', '+${SESSION_DAYS} days'))`).bind(token, userId).run();
-  const secure = url.protocol === 'https:' ? '; Secure' : '';
+  const secure = url.protocol === 'https:' && env?.LOCAL_DEV !== '1' ? '; Secure' : ''; // phones on the Wi-Fi use plain http
   return json({ ok: true, ...extra }, 200, {
     'set-cookie': `nest_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`,
   });
@@ -167,7 +193,7 @@ export async function authPublic({ req, env, db, url, path, method }) {
       pin_hash IS NOT NULL AS has_password FROM users WHERE active = 1 ORDER BY is_admin DESC, is_parent DESC, name`).all();
     // Only the admin can set up their own password on first login; everyone else gets one from the admin
     // (so nobody can claim someone else's profile).
-    const needsCode = !isLocal(url);
+    const needsCode = !isLocal(url, env, req);
     return json(results.map((u) => ({ ...u, can_set_up: !u.has_password && !!u.is_admin, needs_code: !u.has_password && !!u.is_admin && needsCode })));
   }
 
@@ -179,7 +205,7 @@ export async function authPublic({ req, env, db, url, path, method }) {
       return bad('Too many wrong passwords. Try again in 15 minutes, or ask Dad (Lee Roy) to reset it.', 429);
     if (!u.pin_hash) {
       if (!u.is_admin) return bad('Your password hasn\'t been set up yet. Ask Dad (Lee Roy) to set one up for you.', 403);
-      if (!isLocal(url)) {
+      if (!isLocal(url, env, req)) {
         if (!env?.SETUP_CODE) return bad('The admin password has to be set up first. On the laptop, run "Publish to Cloudflare.bat" again: it prints a setup code.', 403);
         if (!sameText(setup_code, env.SETUP_CODE)) {
           const failed = u.failed + 1, lock = failed >= 5 ? new Date(Date.now() + 15 * 60e3).toISOString() : null;
@@ -189,7 +215,7 @@ export async function authPublic({ req, env, db, url, path, method }) {
       }
       const w = weak(password); if (w) return bad(w);
       await setPassword(db, u.id, password, 0);
-      return startSession(db, url, u.id, { firstTime: true });
+      return startSession(db, url, u.id, { firstTime: true }, env);
     }
     if (!(await checkPassword(u, password || ''))) {
       const failed = u.failed + 1;
@@ -198,7 +224,7 @@ export async function authPublic({ req, env, db, url, path, method }) {
       return bad(lock ? 'Wrong password. Locked for 15 minutes.' : `Wrong password (${5 - failed} tries left)`, 401);
     }
     await db.prepare('UPDATE users SET failed = 0, locked_until = NULL WHERE id = ?').bind(u.id).run();
-    return startSession(db, url, u.id, { mustChange: !!u.must_change });
+    return startSession(db, url, u.id, { mustChange: !!u.must_change }, env);
   }
   return null;
 }
@@ -223,10 +249,15 @@ export async function authPrivate({ req, db, path, parts, method, me }) {
   }
 
   // personal preferences, e.g. which calendar layers to show
+  // personal preferences: calendar layers, which notifications, quiet hours. The admin may set them for someone else.
   if (path === 'prefs' && method === 'PUT') {
     const b = await body(req);
-    const prefs = { ...me.prefs, ...(typeof b.islam === 'boolean' ? { islam: b.islam } : {}) };
-    await db.prepare('UPDATE users SET prefs = ? WHERE id = ?').bind(JSON.stringify(prefs), me.id).run();
+    const who = b.user && b.user !== me.id ? b.user : me.id;
+    if (who !== me.id && !me.is_admin) return bad('Only the admin can change someone else\'s settings', 403);
+    const row = who === me.id ? { prefs: JSON.stringify(me.prefs) } : await db.prepare('SELECT prefs FROM users WHERE id = ?').bind(who).first();
+    if (!row) return bad('Not found', 404);
+    const prefs = mergePrefs(parsePrefs(row.prefs), b);
+    await db.prepare('UPDATE users SET prefs = ? WHERE id = ?').bind(JSON.stringify(prefs), who).run();
     return json({ ok: true, prefs });
   }
 
@@ -238,9 +269,9 @@ export async function authPrivate({ req, db, path, parts, method, me }) {
     if (!me.is_admin) return bad('Only the admin (Lee Roy) can do that', 403);
     if (path === 'admin/users' && method === 'GET') {
       const { results } = await db.prepare(`SELECT id, name, full_name, colour, emoji, is_parent, is_admin, active, must_change, permissions, kid_name, birthday,
-        pin_hash IS NOT NULL AS has_password, locked_until > datetime('now') AS locked,
+        pin_hash IS NOT NULL AS has_password, locked_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS locked, prefs,
         (SELECT MAX(expires_at) FROM sessions WHERE user_id = users.id) AS last_session FROM users ORDER BY active DESC, is_admin DESC, is_parent DESC, name`).all();
-      return json({ perms: PERMS, users: results.map(({ permissions, ...u }) => ({ ...u, perms: permsFor({ ...u, permissions }) })) });
+      return json({ perms: PERMS, users: results.map(({ permissions, prefs, ...u }) => ({ ...u, prefs: parsePrefs(prefs), perms: permsFor({ ...u, permissions }) })) });
     }
     if (path === 'admin/users' && method === 'POST') {
       const b = await body(req);
@@ -248,7 +279,7 @@ export async function authPrivate({ req, db, path, parts, method, me }) {
       const id = b.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'user';
       if (await db.prepare('SELECT 1 FROM users WHERE id = ?').bind(id).first()) return bad('Someone with that name already exists');
       await db.prepare('INSERT INTO users (id, name, full_name, colour, emoji, is_parent, is_admin) VALUES (?, ?, ?, ?, ?, ?, 0)')
-        .bind(id, b.name.trim(), b.full_name?.trim() || b.name.trim(), b.colour || '#7a6a9a', b.emoji || '🙂', b.is_parent ? 1 : 0).run();
+        .bind(id, b.name.trim(), b.full_name?.trim() || b.name.trim(), okColour(b.colour) || '#7a6a9a', okEmoji(b.emoji) || '🙂', b.is_parent ? 1 : 0).run();
       if (b.password) { const w = weak(b.password); if (w) return bad(w); await setPassword(db, id, b.password, 1); }
       if (okBirthday(b.birthday)) { await db.prepare('UPDATE users SET birthday = ? WHERE id = ?').bind(b.birthday, id).run(); await syncBirthday(db, id, b.name.trim(), b.birthday, me.id); }
       return json({ ok: true, id });
@@ -270,7 +301,7 @@ export async function authPrivate({ req, db, path, parts, method, me }) {
           return bad('You can\'t remove your own admin rights or switch yourself off');
         const perms = b.perms && typeof b.perms === 'object' ? JSON.stringify(Object.fromEntries(Object.keys(PERMS).map((k) => [k, !!b.perms[k]]))) : u.permissions;
         await db.prepare('UPDATE users SET name = ?, full_name = ?, colour = ?, emoji = ?, is_parent = ?, is_admin = ?, active = ?, permissions = ?, kid_name = ? WHERE id = ?').bind(
-          b.name ?? u.name, b.full_name ?? u.full_name, b.colour ?? u.colour, b.emoji ?? u.emoji,
+          b.name ?? u.name, b.full_name ?? u.full_name, okColour(b.colour) || u.colour, okEmoji(b.emoji) || u.emoji,
           ('is_parent' in b ? (b.is_parent ? 1 : 0) : u.is_parent), ('is_admin' in b ? (b.is_admin ? 1 : 0) : u.is_admin),
           ('active' in b ? (b.active ? 1 : 0) : u.active), perms, ('kid_name' in b ? (b.kid_name || null) : u.kid_name), id).run();
         if ('active' in b && !b.active) await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id).run();

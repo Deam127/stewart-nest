@@ -36,8 +36,23 @@ async function vapidHeader(env, endpoint, origin) {
   return `vapid t=${unsigned}.${b64url(sig)}, k=${env.VAPID_PUBLIC}`;
 }
 
-async function sendAll(db, env, origin, userIds) {
-  const ids = [...new Set(userIds)].filter(Boolean);
+// Is it quiet time for this person right now (South African time)? Handles nights like 21:00–06:00.
+function quietNow(prefs) {
+  if (!prefs.quiet_from || !prefs.quiet_to) return false;
+  const now = new Date(Date.now() + 2 * 3600e3).toISOString().slice(11, 16);
+  const { quiet_from: a, quiet_to: b } = prefs;
+  return a <= b ? now >= a && now < b : now >= a || now < b;
+}
+async function wanted(db, ids, kind) {
+  const { results } = await db.prepare(`SELECT id, prefs FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+  return results.filter((u) => {
+    let p = {}; try { p = JSON.parse(u.prefs || '{}') || {}; } catch { /* none */ }
+    if (kind === 'chat' ? p.notify_chat === false : p.notify_other === false) return false;
+    return !quietNow(p); // quiet time: no buzz; it's waiting in the app when they open it
+  }).map((u) => u.id);
+}
+async function sendAll(db, env, origin, userIds, kind) {
+  const ids = await wanted(db, [...new Set(userIds)].filter(Boolean), kind);
   if (!ids.length) return;
   const { results: subs } = await db.prepare(`SELECT endpoint FROM push_subs WHERE user_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
   await Promise.all(subs.map(async ({ endpoint }) => {
@@ -52,10 +67,10 @@ async function sendAll(db, env, origin, userIds) {
 }
 
 // Wake these people's phones. Returns straight away; the sending finishes after the response.
-export function pushTo(db, userIds) {
+export function pushTo(db, userIds, kind = 'other') {
   const scope = requestScope.getStore();
-  if (!scope?.env?.VAPID_PUBLIC || !scope.env.VAPID_PRIVATE) return;
-  const job = sendAll(db, scope.env, scope.origin, userIds).catch((e) => console.error('push', e.message));
+  if (!scope?.env?.VAPID_PUBLIC || !scope.env.VAPID_PRIVATE || !userIds?.length) return;
+  const job = sendAll(db, scope.env, scope.origin, userIds, kind).catch((e) => console.error('push', e.message));
   scope.ctx?.waitUntil ? scope.ctx.waitUntil(job) : job;
 }
 
@@ -77,3 +92,5 @@ export async function pushApi({ req, env, db, path, method, me }) {
   }
   return null;
 }
+
+export { quietNow };

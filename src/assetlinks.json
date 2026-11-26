@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "za.co.stewartza.nest",
+      "sha256_cert_fingerprints": [
+        "89:A4:99:26:C6:3F:21:78:C7:D0:94:6A:3D:78:4A:AF:87:C8:DE:8B:49:FF:89:72:6F:34:2C:3B:F8:B3:CB:A4"
+      ]
+    }
+  }
+]

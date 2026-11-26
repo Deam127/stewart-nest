@@ -1,0 +1,67 @@
+{
+  "packageId": "za.co.stewartza.nest",
+  "host": "stewartza.co.za",
+  "name": "The Stewart Nest",
+  "launcherName": "Nest",
+  "display": "standalone",
+  "themeColor": "#2F5D50",
+  "themeColorDark": "#2F5D50",
+  "navigationColor": "#2F5D50",
+  "navigationColorDark": "#2F5D50",
+  "navigationDividerColor": "#2F5D50",
+  "navigationDividerColorDark": "#2F5D50",
+  "backgroundColor": "#F6F3EE",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://stewartza.co.za/icon-512.png",
+  "maskableIconUrl": "https://stewartza.co.za/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./nest-release.keystore",
+    "alias": "nest"
+  },
+  "appVersionName": "1.0.5",
+  "appVersionCode": 6,
+  "shortcuts": [
+    {
+      "name": "Family chat",
+      "shortName": "Chat",
+      "url": "https://stewartza.co.za/#chat",
+      "chosenIconUrl": "https://stewartza.co.za/icon-192.png"
+    },
+    {
+      "name": "My day",
+      "shortName": "My day",
+      "url": "https://stewartza.co.za/#today",
+      "chosenIconUrl": "https://stewartza.co.za/icon-192.png"
+    },
+    {
+      "name": "Baby log",
+      "shortName": "Baby log",
+      "url": "https://stewartza.co.za/#baby",
+      "chosenIconUrl": "https://stewartza.co.za/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://stewartza.co.za/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 24,
+  "orientation": "portrait",
+  "fingerprints": [
+    {
+      "name": "release",
+      "value": "89:A4:99:26:C6:3F:21:78:C7:D0:94:6A:3D:78:4A:AF:87:C8:DE:8B:49:FF:89:72:6F:34:2C:3B:F8:B3:CB:A4"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "displayOverride": [],
+  "appVersion": "1.0.5"
+}

@@ -229,54 +229,124 @@ async function viewMustChange() {
 }
 
 // ---------- calendar ----------
-async function viewCalendar() {
-  const ym = S.month;
-  const [y, m] = ym.split('-').map(Number);
+// ---------- calendar: Today, This week or the whole month (each phone remembers its choice) ----------
+const CAL_VIEWS = [['today', 'Today'], ['week', 'This week'], ['month', 'Month']];
+const calView = () => { const v = Alerts.get('calview', 'week'); return CAL_VIEWS.some(([k]) => k === v) ? v : 'week'; };
+function calTabs() {
+  const el = document.createElement('div');
+  el.className = 'seg cal-tabs';
+  el.innerHTML = CAL_VIEWS.map(([k, l]) => `<button data-cv="${k}" class="${calView() === k ? 'on' : ''}">${l}</button>`).join('');
+  $$('[data-cv]', el).forEach((b) => b.onclick = () => { Alerts.set('calview', b.dataset.cv); viewCalendar(); });
+  return el;
+}
+const EV_ICON = { faith: '☪️', holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
+// what the calendar knows about each date, from one or more months of data
+function calContext(data) {
+  const by = (arr) => arr.reduce((a, r) => ((a[r.date] = a[r.date] || []).push(r), a), {});
+  const showEv = (e) => !e.layer || (S.me.prefs && S.me.prefs[e.layer]);
+  const pics = {}; (data.photos || []).forEach((p) => { if (!pics[p.date]) pics[p.date] = p; });
+  return {
+    menu: Object.fromEntries(data.menu.map((r) => [r.date, r])),
+    plans: by(data.plans), notes: Object.fromEntries(data.notes.map((r) => [r.date, r.n])),
+    tasks: Object.fromEntries(data.tasks.map((r) => [r.date, r])),
+    wo: Object.fromEntries((data.workouts || []).map((r) => [r.date, r])),
+    evs: by((data.events || []).filter((e) => !e.quiet && showEv(e))),
+    pics,
+    hol: Object.fromEntries((data.events || []).filter((e) => e.category === 'holiday').map((e) => [e.date, e.title])),
+    school: new Set((data.events || []).filter((e) => e.category === 'term').map((e) => e.date)),
+  };
+}
+function dayClasses(date, c) {
+  const today = todayStr(), s = c.menu[date];
+  const outdoorToday = (s && s.outdoor && !s.use_backup) || (c.plans[date] || []).some((p) => p.outdoor && !p.use_rain);
+  return `${date === today ? 'today' : ''} ${date < today ? 'past' : ''} ${rainLikely(date) && outdoorToday ? 'rainy' : ''} ${c.hol[date] ? 'hol' : ''}`;
+}
+// the inside of one day: holiday, events, supper, photo, little badges
+function dayBits(date, c, maxEv = 2) {
+  const today = todayStr(), s = c.menu[date];
+  const outdoorToday = (s && s.outdoor && !s.use_backup) || (c.plans[date] || []).some((p) => p.outdoor && !p.use_rain);
+  const rainy = rainLikely(date) && outdoorToday;
+  const t = c.tasks[date], wo = c.wo[date];
+  const dayEv = (c.evs[date] || []).filter((e) => e.category !== 'holiday');
+  return `${c.hol[date] ? `<div class="holname">🇿🇦 ${esc(c.hol[date])}</div>` : ''}
+      ${dayEv.slice(0, maxEv).map((e) => `<div class="evchip">${e.title.match(/^\p{Extended_Pictographic}/u) ? '' : (EV_ICON[e.category] || '📌') + ' '}${esc(e.title)}${maxEv > 2 && e.start_time ? ` <span class="muted">${esc(e.start_time)}</span>` : ''}</div>`).join('')}${dayEv.length > maxEv ? `<div class="evchip">+${dayEv.length - maxEv} more</div>` : ''}
+      ${s ? `<div class="meal ${s.use_backup ? 'backup' : ''}">${s.use_backup ? '☔ ' + esc(s.backup_name.replace(/^Rain plan: /, '')) : (s.outdoor ? '🔥 ' : '') + esc(s.name)}</div>` : ''}
+      ${c.pics[date] ? `<img class="ph" src="/api/photos/${esc(c.pics[date].photo_key)}" loading="lazy" alt="">` : ''}
+      <div class="marks">
+        ${rainy ? '<span class="badge rain">☔ rain?</span>' : ''}
+        ${(c.plans[date] || []).length ? `<span class="badge">📌${c.plans[date].length}</span>` : ''}
+        ${c.notes[date] ? `<span class="badge">📝${c.notes[date]}</span>` : ''}
+        ${t && t.open ? `<span class="badge ${date < today ? 'warn' : ''}">🧹${t.open}</span>` : ''}
+        ${wo ? `<span class="badge ${wo.done >= wo.n ? 'ok' : ''}">💪${wo.done}/${wo.n}</span>` : ''}
+      </div>`;
+}
+async function monthData(ym) {
   let data = await api('month?ym=' + ym);
   if (!data.menu.length) {
     // First visit to a month: build its menu from the rotation (season picked automatically)
     await api('menu/generate', { body: { ym } });
     data = await api('month?ym=' + ym);
   }
+  return data;
+}
+const wxBit = (date) => { const wx = S.weather[date]; return wx ? `<span class="wx" title="${wx.rain}% chance of rain">${wxIcon(wx.code)}${wx.rain >= 30 ? wx.rain + '%' : ''}</span>` : ''; };
+const LEGEND = `<p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned · 🇿🇦 public holiday · 🎒 school · 🗑️ bin day · <span style="border-bottom:3px solid #8bb5a5">school day</span></p>`;
+
+async function viewCalendar() {
+  const v = calView();
+  if (v === 'today') return viewDay(todayStr()); // the day page, with the view switch on top
+  if (v === 'week') return viewWeek();
+  return viewMonth();
+}
+
+async function viewWeek() {
+  const today = todayStr();
+  const mon = S.weekOf || addDays(today, 1 - ((toD(today).getDay() + 6) % 7 + 1));
+  const days = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  const months = [...new Set(days.map((d) => d.slice(0, 7)))];
+  const parts = await Promise.all(months.map(monthData));
+  const data = parts.reduce((all, p) => { for (const k of Object.keys(p)) all[k] = [...(all[k] || []), ...(p[k] || [])]; return all; }, {});
+  await loadWeather();
+  const c = calContext(data);
+  const rows = days.map((date) => `<div class="wk-row cell ${dayClasses(date, c)}" data-d="${date}">
+      <div class="wk-date ${c.school.has(date) ? 'sch' : ''}"><strong>${toD(date).toLocaleDateString('en-ZA', { weekday: 'short' })}</strong><span>${Number(date.slice(8))}</span>${wxBit(date)}</div>
+      <div class="wk-body">${dayBits(date, c, 4)}</div></div>`).join('');
+  const isThis = days.includes(today);
+  $('#view').innerHTML = `
+    <div class="cal-head">
+      <button class="btn small ghost" id="prev">‹</button>
+      <h1 style="margin:0">${short(days[0])} – ${short(days[6])}</h1>
+      <button class="btn small ghost" id="next">›</button>
+    </div>
+    <div class="row wrap" style="margin-bottom:8px">
+      <span class="muted grow">Hi ${esc(S.me.name)}. Tap a day for meals, plans, notes and tasks.</span>
+      ${isThis ? '' : '<button class="btn small ghost" id="this">This week</button>'}
+    </div>
+    <div class="wk">${rows}</div>${LEGEND}`;
+  $('#view').prepend(calTabs());
+  $('#prev').onclick = () => { S.weekOf = addDays(mon, -7); viewWeek(); };
+  $('#next').onclick = () => { S.weekOf = addDays(mon, 7); viewWeek(); };
+  $('#this') && ($('#this').onclick = () => { S.weekOf = null; viewWeek(); });
+  $$('.wk-row[data-d]').forEach((r) => r.onclick = () => (location.hash = '#day/' + r.dataset.d));
+}
+
+async function viewMonth() {
+  const ym = S.month;
+  const [y, m] = ym.split('-').map(Number);
+  const data = await monthData(ym);
   await loadWeather();
   const first = new Date(y, m - 1, 1);
   const lead = (first.getDay() + 6) % 7;
   const nDays = new Date(y, m, 0).getDate();
   const today = todayStr();
-  const by = (arr) => arr.reduce((a, r) => ((a[r.date] = a[r.date] || []).push(r), a), {});
-  const menu = Object.fromEntries(data.menu.map((r) => [r.date, r]));
-  const plans = by(data.plans), notes = Object.fromEntries(data.notes.map((r) => [r.date, r.n]));
-  const tasks = Object.fromEntries(data.tasks.map((r) => [r.date, r]));
-  const wo = Object.fromEntries((data.workouts || []).map((r) => [r.date, r]));
-  const showEv = (e) => !e.layer || (S.me.prefs && S.me.prefs[e.layer]);
-  const evs = by((data.events || []).filter((e) => !e.quiet && showEv(e)));
-  const pics = {}; (data.photos || []).forEach((p) => { if (!pics[p.date]) pics[p.date] = p; });
-  const hol = Object.fromEntries((data.events || []).filter((e) => e.category === 'holiday').map((e) => [e.date, e.title]));
-  const school = new Set((data.events || []).filter((e) => e.category === 'term').map((e) => e.date));
-  const EV_ICON = { faith: '☪️', holiday: '🇿🇦', school: '🎒', school_holiday: '🏖️', bins: '🗑️', work: '💼', birthday: '🎂', appointment: '🩺', family: '🏡', other: '📌' };
+  const c = calContext(data);
   let cells = '';
   for (let i = 0; i < lead; i++) cells += '<div class="cell blank"></div>';
   for (let d = 1; d <= nDays; d++) {
     const date = `${ym}-${String(d).padStart(2, '0')}`;
-    const s = menu[date], wx = S.weather[date];
-    const outdoorToday = (s && s.outdoor && !s.use_backup) || (plans[date] || []).some((p) => p.outdoor && !p.use_rain);
-    const rainy = rainLikely(date) && outdoorToday;
-    const usingBackup = s && s.use_backup;
-    const t = tasks[date];
-    const dayEv = (evs[date] || []).filter((e) => e.category !== 'holiday');
-    cells += `<div class="cell ${date === today ? 'today' : ''} ${date < today ? 'past' : ''} ${rainy ? 'rainy' : ''} ${hol[date] ? 'hol' : ''}" data-d="${date}">
-      <div class="n ${school.has(date) ? 'sch' : ''}"><span>${d}</span>${wx ? `<span class="wx" title="${wx.rain}% chance of rain">${wxIcon(wx.code)}${wx.rain >= 30 ? wx.rain + '%' : ''}</span>` : ''}</div>
-      ${hol[date] ? `<div class="holname">🇿🇦 ${esc(hol[date])}</div>` : ''}
-      ${dayEv.slice(0, 2).map((e) => `<div class="evchip">${e.title.match(/^\p{Extended_Pictographic}/u) ? '' : (EV_ICON[e.category] || '📌') + ' '}${esc(e.title)}</div>`).join('')}${dayEv.length > 2 ? `<div class="evchip">+${dayEv.length - 2} more</div>` : ''}
-      ${s ? `<div class="meal ${usingBackup ? 'backup' : ''}">${usingBackup ? '☔ ' + esc(s.backup_name.replace(/^Rain plan: /, '')) : (s.outdoor ? '🔥 ' : '') + esc(s.name)}</div>` : ''}
-      ${pics[date] ? `<img class="ph" src="/api/photos/${pics[date].photo_key}" loading="lazy" alt="">` : ''}
-      <div class="marks">
-        ${rainy ? '<span class="badge rain">☔ rain?</span>' : ''}
-        ${(plans[date] || []).length ? `<span class="badge">📌${plans[date].length}</span>` : ''}
-        ${notes[date] ? `<span class="badge">📝${notes[date]}</span>` : ''}
-        ${t && t.open ? `<span class="badge ${date < today ? 'warn' : ''}">🧹${t.open}</span>` : ''}
-        ${wo[date] ? `<span class="badge ${wo[date].done >= wo[date].n ? 'ok' : ''}">💪${wo[date].done}/${wo[date].n}</span>` : ''}
-      </div></div>`;
+    cells += `<div class="cell ${dayClasses(date, c)}" data-d="${date}">
+      <div class="n ${c.school.has(date) ? 'sch' : ''}"><span>${d}</span>${wxBit(date)}</div>
+      ${dayBits(date, c)}</div>`;
   }
   $('#view').innerHTML = `
     <div class="cal-head">
@@ -289,13 +359,13 @@ async function viewCalendar() {
       ${ym !== today.slice(0, 7) ? '<button class="btn small ghost" id="this">This month</button>' : ''}
       <button class="btn small ${S.me.prefs && S.me.prefs.islam ? '' : 'ghost'}" id="lay-islam" title="Islamic calendar">☪️ ${S.me.prefs && S.me.prefs.islam ? 'On' : 'Off'}</button>
     </div>
-    <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>
-    <p class="muted">🔥 braai (needs a dry day) · ☔ rain likely, so look at the rain plan · 📌 plans · 📝 notes · 🧹 your open tasks · 💪 family workouts done/planned · 🇿🇦 public holiday · 🎒 school · 🗑️ bin day · <span style="border-bottom:3px solid #8bb5a5">school day</span></p>`;
-  $('#prev').onclick = () => { S.month = ymd(new Date(y, m - 2, 1)).slice(0, 7); viewCalendar(); };
-  $('#next').onclick = () => { S.month = ymd(new Date(y, m, 1)).slice(0, 7); viewCalendar(); };
-  $('#this') && ($('#this').onclick = () => { S.month = today.slice(0, 7); viewCalendar(); });
-  $('#lay-islam').onclick = async () => { await window.toggleLayer('islam', !(S.me.prefs && S.me.prefs.islam)); viewCalendar(); };
-  $$('.cell[data-d]').forEach((c) => c.onclick = () => (location.hash = '#day/' + c.dataset.d));
+    <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells}</div>${LEGEND}`;
+  $('#view').prepend(calTabs());
+  $('#prev').onclick = () => { S.month = ymd(new Date(y, m - 2, 1)).slice(0, 7); viewMonth(); };
+  $('#next').onclick = () => { S.month = ymd(new Date(y, m, 1)).slice(0, 7); viewMonth(); };
+  $('#this') && ($('#this').onclick = () => { S.month = today.slice(0, 7); viewMonth(); });
+  $('#lay-islam').onclick = async () => { await window.toggleLayer('islam', !(S.me.prefs && S.me.prefs.islam)); viewMonth(); };
+  $$('.cell[data-d]').forEach((cell) => cell.onclick = () => (location.hash = '#day/' + cell.dataset.d));
 }
 
 // ---------- one day ----------
@@ -373,6 +443,7 @@ async function viewDay(date) {
   $('#dprev').onclick = () => (location.hash = '#day/' + addDays(date, -1));
   $('#dnext').onclick = () => (location.hash = '#day/' + addDays(date, 1));
   $$('select[data-meal]').forEach((s) => s.onchange = async () => { if (!s.value) return; await put('menu', { date, meal: s.dataset.meal, recipe_id: s.value }); toast('Meal changed'); viewDay(date); });
+  if (date === todayStr() && (!location.hash || location.hash.startsWith('#calendar'))) $('#view').prepend(calTabs());
   $$('[data-backup]').forEach((b) => b.onclick = async () => { await put('menu/backup', { date, meal: 's', use_backup: b.dataset.backup === '1' }); toast(b.dataset.backup === '1' ? 'Rain plan on. The family has been told.' : 'Back to the braai'); viewDay(date); });
   $$('[data-rainplan]').forEach((b) => b.onclick = async () => { await put('plans/' + b.dataset.rainplan, { use_rain: b.dataset.v === '1' }); viewDay(date); });
   $$('[data-delplan]').forEach((b) => b.onclick = async () => { if (confirm('Remove this plan?')) { await del('plans/' + b.dataset.delplan); viewDay(date); } });
@@ -592,7 +663,7 @@ async function viewMore() {
     </div>
     `;
 
-  $('#logout').onclick = async () => { await Alerts.pushOff(); P2.pushSynced = false; await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
+  $('#logout').onclick = async () => { await Alerts.pushOff(); P2.pushSynced = false; try { await caches.delete('nest-api'); } catch { /* none */ } await api('logout', { body: {} }); S.me = null; location.hash = '#login'; route(); };
   $('#notif-on') && ($('#notif-on').onclick = async () => {
     try { await Alerts.pushOn(); toast('🔔 Notifications are on for this phone'); } catch (e) { toast(e.message); }
     viewMore();

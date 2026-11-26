@@ -3,7 +3,7 @@ import { json, bad, body, othersOf } from './util.js';
 import { pushTo } from './push.js';
 import { isMediaKey } from './media.js';
 
-const MSG_SQL = `SELECT c.id, c.user_id, c.text, c.photo_key, c.reply_to, c.created_at, c.deleted, c.card,
+const MSG_SQL = `SELECT c.id, c.user_id, c.text, c.photo_key, c.reply_to, c.created_at, c.deleted, c.card, c.pinned,
   u.name, u.emoji, u.colour,
   r.text AS reply_text, r.photo_key AS reply_photo, ru.name AS reply_name, r.deleted AS reply_deleted
   FROM chat_messages c JOIN users u ON u.id = c.user_id
@@ -27,6 +27,12 @@ async function votesFor(db, fromId) {
   return out;
 }
 export const safeLink = (l) => typeof l === 'string' && /^#[\w\/.\-]*$/.test(l);
+async function pinsList(db) {
+  const { results } = await db.prepare(`SELECT c.id, c.text, c.photo_key, c.card, c.created_at, c.pinned_by, u.name, p.name AS pinned_by_name
+    FROM chat_messages c JOIN users u ON u.id = c.user_id LEFT JOIN users p ON p.id = c.pinned_by
+    WHERE c.pinned = 1 AND c.deleted = 0 ORDER BY c.id DESC LIMIT 20`).all();
+  return results.map((m) => ({ ...m, card: parseCard(m.card) }));
+}
 const parseCard = (c) => { try { return c ? JSON.parse(c) : null; } catch { return null; } };
 
 // Remove a photo from storage once nothing in the Nest uses it any more.
@@ -38,18 +44,21 @@ export async function dropPhotoIfUnused(env, db, key) {
 }
 
 // Delete messages for everyone: the message, its reactions and votes, and its photo if nothing else uses it.
+const ID_CHUNK = 90; // the database accepts at most 100 values in one query
 export async function removeMessages(db, env, ids) {
-  ids = [...new Set(ids.map(Number).filter(Boolean))];
-  if (!ids.length) return 0;
-  const marks = ids.map(() => '?').join(',');
-  const keys = (await db.prepare(`SELECT photo_key FROM chat_messages WHERE id IN (${marks}) AND photo_key IS NOT NULL`).bind(...ids).all()).results.map((r) => r.photo_key);
-  await db.batch([
-    db.prepare(`DELETE FROM chat_reactions WHERE message_id IN (${marks})`).bind(...ids),
-    db.prepare(`DELETE FROM chat_votes WHERE message_id IN (${marks})`).bind(...ids),
-    db.prepare(`DELETE FROM chat_messages WHERE id IN (${marks})`).bind(...ids),
-  ]);
-  for (const k of keys) await dropPhotoIfUnused(env, db, k);
-  return ids.length;
+  const all = [...new Set(ids.map(Number).filter(Boolean))];
+  for (let i = 0; i < all.length; i += ID_CHUNK) {
+    const part = all.slice(i, i + ID_CHUNK);
+    const marks = part.map(() => '?').join(',');
+    const keys = (await db.prepare(`SELECT photo_key FROM chat_messages WHERE id IN (${marks}) AND photo_key IS NOT NULL`).bind(...part).all()).results.map((r) => r.photo_key);
+    await db.batch([
+      db.prepare(`DELETE FROM chat_reactions WHERE message_id IN (${marks})`).bind(...part),
+      db.prepare(`DELETE FROM chat_votes WHERE message_id IN (${marks})`).bind(...part),
+      db.prepare(`DELETE FROM chat_messages WHERE id IN (${marks})`).bind(...part),
+    ]);
+    for (const k of keys) await dropPhotoIfUnused(env, db, k);
+  }
+  return all.length;
 }
 
 export async function chat({ req, env, db, path, parts, method, q, me }) {
@@ -72,7 +81,18 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
       reactions: await reactionsFor(db, from || 0), votes: await votesFor(db, from || 0),
       reads: (await db.prepare('SELECT r.user_id, r.last_id FROM chat_reads r JOIN users u ON u.id = r.user_id WHERE u.active = 1').all()).results,
       people: (await db.prepare('SELECT COUNT(*) AS n FROM users WHERE active = 1').first()).n,
+      pins: await pinsList(db),
     });
+  }
+
+  // search all messages (not only the ones loaded on the phone)
+  if (path === 'chat/search' && method === 'GET') {
+    const term = (q.get('q') || '').trim();
+    if (term.length < 2) return json([]);
+    const like = '%' + term.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+    const { results } = await db.prepare(`SELECT c.id, c.text, c.photo_key, c.card, c.created_at, u.name, u.emoji FROM chat_messages c JOIN users u ON u.id = c.user_id
+      WHERE c.deleted = 0 AND (c.text LIKE ? ESCAPE '\\' OR c.card LIKE ? ESCAPE '\\') ORDER BY c.id DESC LIMIT 60`).bind(like, like).all();
+    return json(results.map((m) => ({ ...m, card: parseCard(m.card) })));
   }
 
   if (path === 'chat' && method === 'POST') {
@@ -107,7 +127,7 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
       throw e;
     }
     await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_id = excluded.last_id`).bind(me.id, r.meta.last_row_id).run();
-    pushTo(db, await othersOf(db, me)); // wake everyone else's phone
+    pushTo(db, await othersOf(db, me), 'chat'); // wake everyone else's phone
     return json({ ok: true, id: r.meta.last_row_id });
   }
 
@@ -116,6 +136,7 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
     const { ids } = await body(req);
     if (!Array.isArray(ids) || !ids.length) return bad('Pick messages to delete');
     if (!me.is_admin) {
+      if (ids.length > ID_CHUNK) return bad('Pick fewer messages at a time');
       const mine = (await db.prepare(`SELECT COUNT(*) AS n FROM chat_messages WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).bind(me.id, ...ids).first()).n;
       if (mine !== ids.length) return bad('You can only delete your own messages', 403);
     }
@@ -146,6 +167,13 @@ export async function chat({ req, env, db, path, parts, method, q, me }) {
     if (had && had.opt === opt) await db.prepare('DELETE FROM chat_votes WHERE message_id = ? AND user_id = ?').bind(id, me.id).run();
     else await db.prepare('INSERT OR REPLACE INTO chat_votes (message_id, user_id, opt) VALUES (?, ?, ?)').bind(id, me.id, opt).run();
     return json({ ok: true });
+  }
+
+  // pin / unpin a message for everyone (school info, the Wi-Fi password…)
+  if (parts[2] === 'pin' && method === 'POST') {
+    const on = !m.pinned;
+    await db.prepare('UPDATE chat_messages SET pinned = ?, pinned_by = ? WHERE id = ?').bind(on ? 1 : 0, on ? me.id : null, id).run();
+    return json({ ok: true, pinned: on });
   }
 
   // delete for everyone: your own messages, or any message if you're the admin

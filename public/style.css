@@ -347,3 +347,33 @@ body.chat-mode main { padding-top: 0; }
 /* search boxes on long lists */
 .sel-search { margin-bottom: 4px; }
 .rx-who[data-unrx] { cursor: pointer; }
+
+/* calendar view switch and the week list */
+.seg { display: flex; background: #ebe6dd; border-radius: 10px; padding: 3px; gap: 3px; margin: 0 0 10px; }
+.seg button { flex: 1; border: 0; background: transparent; padding: 7px 6px; border-radius: 8px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+.seg button.on { background: #fff; color: var(--brand); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.wk { display: flex; flex-direction: column; gap: 6px; }
+.wk-row { display: flex; gap: 10px; align-items: flex-start; min-height: 0; height: auto; padding: 8px 10px; cursor: pointer; }
+.wk-row .wk-date { width: 54px; flex: none; display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.wk-row .wk-date span:first-of-type { font-size: 1.35rem; font-weight: 700; }
+.wk-row .wk-body { flex: 1; min-width: 0; }
+.wk-row .ph { max-height: 90px; }
+.wk-row .meal, .wk-row .evchip, .wk-row .holname { font-size: .85rem; -webkit-line-clamp: 2; }
+
+/* baby log */
+.baby-now { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.baby-now .card { margin: 0; text-align: center; padding: 10px 6px; }
+.baby-now strong { display: block; font-size: 1.05rem; margin: 2px 0; }
+.baby-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.baby-btns .btn { padding: 16px 6px; font-size: 1rem; }
+.baby-opts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 10px; }
+.baby-opts .btn { padding: 14px 6px; }
+.baby-link { display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+/* chat: pinned bar & search */
+.pin-bar { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: #fffbe8; padding: 8px 12px; font: inherit; cursor: pointer; }
+.pin-bar .grow { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+mark { background: #ffe58a; border-radius: 3px; padding: 0 1px; }
+/* offline banner */
+#offline { position: fixed; left: 50%; transform: translateX(-50%); bottom: 72px; z-index: 9998; background: #333; color: #fff; padding: 8px 14px; border-radius: 20px; font-size: .85rem; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.cal-tabs + .cal-head { margin-top: 0; }
+.wk .wk-row { flex-direction: row; aspect-ratio: auto; }

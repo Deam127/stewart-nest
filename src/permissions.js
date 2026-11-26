@@ -12,7 +12,7 @@ export const PERMS = {
   edit_calendar: 'Add/edit events, day plans and notes',
   shopping: 'Stock take, shopping list & trolley, inventory',
   fun: 'Family fun ideas (add, vote, plan)',
-  baby_lists: "Madilea's bags & buy lists",
+  baby_lists: "Madilea's bags, buy lists & baby log",
   workouts_manage: 'Create and stop workouts for anyone',
   approve_rewards: 'Approve rewards and set reward goals',
   settings: 'App settings, budgets and baby due date',
@@ -42,7 +42,7 @@ export function requiredPerm(path, parts, method) {
   if (p0 === 'catalog' && write) return 'edit_recipes';
   if (['events', 'plans', 'notes'].includes(p0) && write) return 'edit_calendar';
   if (p0 === 'fun' && write) return 'fun';
-  if (['lists', 'list-items'].includes(p0) && write) return 'baby_lists';
+  if (['lists', 'list-items', 'baby'].includes(p0) && write) return 'baby_lists';
   if (p0 === 'templates' && write) return 'assign_tasks';
   if (p0 === 'workouts' && write && path !== 'workouts/log') return 'workouts_manage';
   if (path === 'rewards/goal' || path === 'rewards/claim') return 'approve_rewards';

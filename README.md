@@ -73,7 +73,20 @@ The Stewart family organiser for Lee Roy, Shirley and Skyler (and soon Madilea M
 
 **Also in this version:** meal ratings (stars, keep/swap, comments, with a report to paste into Claude), plus phone home-screen icons.
 
-**Chat, notifications & safety (latest):**
+**Calendar views, baby log, reward shop & more (latest):**
+- **📅 Today / This week / Month:** a switch at the top of the calendar. Each phone remembers its choice; *This week* shows the 7 days as a list.
+- **👶 Baby log** (Family → Baby log, or from Madilea's page): one tap for 🍼 feeds (left, right, bottle with ml…), 🧷 nappies and 😴 sleep. The top shows "last fed 2h 10m ago" and whether she's asleep; each day has a summary. Mom and Dad (the *Madilea* permission) can log; everyone can see.
+- **🎁 Reward shop & 🔥 streaks** (under Rewards): points from tasks add up to spend on treats Mom or Dad add (e.g. "pick Friday's movie"). Asking for a treat notifies the grown-ups; "not now" gives the points back. Streak badges for morning checks and days with everything on time.
+- **💬 Chat:** 🔍 search every message, 📌 pin important ones (bar at the top), 👁 see who has seen your message.
+- **🔕 What buzzes my phone** (More): chat on/off, everything else on/off, the Sunday summary, and 🌙 quiet hours. The admin can set quiet hours for the children.
+- **🗓️ Sunday week-ahead:** every Sunday at 17:00 each person gets the next 7 days' suppers, their chores and events. The admin can send it any time from More.
+- **⏰ Reminders run on a timer** every 15 minutes, so they arrive even when nobody has the app open.
+- **🗄️ Backups:** every Sunday night the whole family database is saved online (last 8 kept). More → Backups to make one now or download one to the laptop.
+- **💾 Photo storage meter** (More, admin) and an optional "remove chat videos older than 6/12/24 months" (off unless you choose it).
+- **📴 Opens without signal:** shows what was last loaded, with a small "No signal" note.
+- **Fixes:** big chat clean-ups (100+ messages at once), the "locked" label on profiles, error messages no longer show technical details, a phone with the wrong date no longer moves the chores, profile colours/emoji only take real values.
+
+**Chat, notifications & safety:**
 - **🎤 Voice notes:** tap the mic in chat, talk (up to 3 minutes), then tap ➤ to send or 🗑️ to cancel. This needs the secure address (https://stewartza.co.za); it won't work on the laptop's Wi-Fi address.
 - **🎥 Video clips:** 📎 → Video. Record or pick a clip (up to 50 MB), add a caption and send.
 - **👀 Who reacted:** tap the reactions under a message to see who reacted with what. Tap your own to take it back.
@@ -137,9 +150,27 @@ Open **http://localhost:8787**.
    - publishes the app
    - once the domain is Active, puts it on **https://stewartza.co.za** (and www)
 
+**Check before you publish:** run `npm run check` (or in the app folder: `npm run check` in a terminal). It starts a throwaway copy of the app with its own empty database, tries 113 things (log-ins, tasks, chat, uploads, baby log, rewards, backups…), then stops. Your laptop data and the website are not touched. "✔ All good. Safe to publish." means go ahead.
+
 Run it again any time after updating the app files to publish the new version. It also sets up phone notifications the first time, and prints the admin setup code if the admin has no password online yet.
 
 **Testing phone notifications on the laptop (optional):** they only work on `http://localhost:8787` (not the Wi-Fi address). Put two lines in a file called `.dev.vars` in the app folder: `VAPID_PUBLIC=…` and `VAPID_PRIVATE=…` (any P-256 key pair, base64url; the publish script shows how they're made). Your online data is left alone. A backup of what was copied up is kept in `backups/`.
+
+## Android app (APK)
+
+The Nest can also be a real Android app: its own icon, splash screen, no browser bar, notifications as "Nest", and long-press shortcuts to Chat, My day and Baby log. It opens https://stewartza.co.za inside Chrome, so the data and updates are the same as the website (publishing the website updates the app too).
+
+0. Run **`Publish to Cloudflare.bat`** first if you changed the app icon (Bubblewrap copies the icons from the website).
+1. Double-click **`Build Android App.bat`**.
+   - Java and the Android tools are already installed on this laptop (in `%USERPROFILE%\.bubblewrap`). On another computer, Bubblewrap offers to download them (about 500 MB): say yes and accept the licences.
+   - Choose a password for the app's signing key. **Back up `android
+est-release.keystore` and that password** (e.g. Google Drive): every future app update must be signed with the same key.
+   - When it's done, `Stewart Nest.apk` is in the app folder.
+2. Run **`Publish to Cloudflare.bat`**, so the website recognises the app and it opens without the browser bar.
+3. Send `Stewart Nest.apk` to each Android phone (WhatsApp it to yourself, Google Drive or a USB cable), open it, and allow "install unknown apps" for that one app when asked.
+4. Open the Nest app, log in, and switch on notifications in **More**.
+
+You only need to build the app again to change its name, icon or shortcuts (in `android/twa-manifest.json`). Everything else updates with the website. The app needs Android 7.0 or newer. iPhones keep using "Add to Home screen".
 
 ## Changing things
 
