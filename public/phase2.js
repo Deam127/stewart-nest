@@ -12,21 +12,56 @@ const P2 = { chatLast: 0, chatTimer: null, shopTab: 'list', invFilter: '', invSe
 
 // ---------- shared: photos & barcodes ----------
 // Shrink a phone photo to ~1280px JPEG before uploading (saves data and storage)
-async function resizeImage(file, max = 1280) {
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+async function resizeImage(file, max = 1200) {
+  // fast path: decode straight to a small bitmap (much lighter on phones than a full-size <img>)
+  if (window.createImageBitmap) {
+    try {
+      const probe = await createImageBitmap(file);
+      const sc = Math.min(1, max / Math.max(probe.width, probe.height));
+      const w = Math.round(probe.width * sc), h = Math.round(probe.height * sc);
+      probe.close && probe.close();
+      const bmp = await createImageBitmap(file, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(bmp, 0, 0, w, h); bmp.close && bmp.close();
+      const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.78));
+      if (blob) return blob;
+    } catch { /* fall back below */ }
+  }
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Couldn't read that photo. Try choosing it from the gallery.")); i.src = URL.createObjectURL(file); });
   const scale = Math.min(1, max / Math.max(img.width, img.height));
   const c = document.createElement('canvas');
   c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   URL.revokeObjectURL(img.src);
-  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.82));
+  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.78));
 }
+// Upload with a visible progress bar (spinner + %) so you can see it working on slow connections
+const Up = { n: 0, done: 0, total: 0 };
+function upBar(text, pct) {
+  let el = $('#upbar');
+  if (!el) { el = document.createElement('div'); el.id = 'upbar'; el.innerHTML = '<span class="spin"></span><span class="t"></span><span class="b"><i></i></span>'; document.body.appendChild(el); }
+  el.hidden = false; $('.t', el).textContent = text; $('.b i', el).style.width = (pct ?? 0) + '%';
+  $('.spin', el).style.display = pct >= 100 ? 'none' : '';
+}
+function upDone() { Up.n = 0; Up.done = 0; Up.total = 0; const el = $('#upbar'); if (el) el.hidden = true; }
 async function uploadPhoto(file) {
-  const blob = await resizeImage(file);
-  const r = await fetch('/api/photos', { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob, credentials: 'same-origin' });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error || 'Upload failed');
-  return d.key;
+  if (Up.total) Up.n = Up.total; else Up.n++;
+  const label = () => `Uploading photo${Up.n > 1 ? ` ${Up.done + 1} of ${Up.n}` : ''}`;
+  upBar(`${label()}… getting it ready`, 3);
+  try {
+    const blob = await resizeImage(file);
+    const key = await new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('POST', '/api/photos'); x.setRequestHeader('content-type', 'image/jpeg'); x.withCredentials = true;
+      x.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round((e.loaded / e.total) * 95); upBar(`${label()}… ${p}%`, p); } };
+      x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch { /* */ } x.status < 300 ? resolve(d.key) : reject(new Error(d.error || 'Upload failed')); };
+      x.onerror = () => reject(new Error('Upload failed: check your connection and try again'));
+      x.send(blob);
+    });
+    Up.done++;
+    if (Up.done >= Up.n) { upBar('Uploaded ✔', 100); setTimeout(upDone, 900); } else upBar(`${label()}…`, 0);
+    return key;
+  } catch (e) { upDone(); throw e; }
 }
 function pickPhoto() {
   return new Promise((res) => {
@@ -157,7 +192,6 @@ ROUTES.chat = async () => {
   $('#c-text').onkeydown = (e) => { if (e.key === 'Enter') send(); };
   $('#c-photo').onclick = async () => {
     const f = await pickPhoto(); if (!f) return;
-    toast('Sending photo…');
     try { await send(await uploadPhoto(f)); } catch (e) { toast(e.message); }
   };
 };
@@ -602,7 +636,6 @@ async function itemSheet(it, sections) {
   $('[data-close]', s).onclick = () => s.remove();
   $('#is-photo', s).onclick = async () => {
     const f = await pickPhoto(); if (!f) return;
-    toast('Uploading…');
     try { photo = await uploadPhoto(f); $('#is-ph', s).innerHTML = `<img class="photo-big" src="${photoUrl(photo)}">`; } catch (e) { toast(e.message); }
   };
   $('#is-scan', s).onclick = async () => { const c = await scanBarcode(); if (c) $('#is-bc', s).value = c; };

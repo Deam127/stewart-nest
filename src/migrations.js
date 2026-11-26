@@ -239,4 +239,14 @@ export const UPGRADES = {
     'ALTER TABLE shop_trips ADD COLUMN from_date TEXT',
     'ALTER TABLE shop_trips ADD COLUMN to_date TEXT',
   ],
+  10: [
+    // chat: replies, reactions, deleting your own message
+    'ALTER TABLE chat_messages ADD COLUMN reply_to INTEGER',
+    'ALTER TABLE chat_messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE chat_messages ADD COLUMN card TEXT', // shared task / supper / event / recipe / poll (JSON)
+    `CREATE TABLE IF NOT EXISTS chat_votes (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, opt INTEGER NOT NULL,
+       PRIMARY KEY (message_id, user_id))`,
+    `CREATE TABLE IF NOT EXISTS chat_reactions (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL,
+       created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (message_id, user_id, emoji))`,
+  ],
 };

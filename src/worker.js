@@ -7,6 +7,7 @@ import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
 import { events as eventApi, occurrences } from './events.js';
 import { photos as photoApi } from './photos.js';
+import { chat as chatApi } from './chat.js';
 import { requiredPerm } from './permissions.js';
 import { kidView } from './util.js';
 import { phase2 } from './phase2.js';
@@ -51,6 +52,18 @@ async function generateMonth(db, ym, season, overwrite) {
 const MENU_SQL = `SELECT m.date, m.meal, m.recipe_id, m.use_backup, r.name, r.outdoor, r.rain_backup,
   b.name AS backup_name, r.portions, r.method, b.portions AS backup_portions, b.method AS backup_method
   FROM menu m JOIN recipes r ON r.id = m.recipe_id LEFT JOIN recipes b ON b.id = r.rain_backup`;
+
+// Post a finished task in the family chat (grown-ups can switch this off in Settings)
+async function postTaskToChat(db, me, t, { title, sub, key }) {
+  const on = (await db.prepare("SELECT value FROM settings WHERE key = 'chat_task_posts'").first())?.value;
+  if (on === '0') return;
+  try {
+    if (await db.prepare('SELECT 1 FROM chat_messages WHERE deleted = 0 AND card LIKE ?').bind(`%"key":"${key}"%`).first()) return;
+    const card = JSON.stringify({ type: 'task', title, sub, link: '#today', key });
+    await db.prepare('INSERT INTO chat_messages (user_id, text, card) VALUES (?, ?, ?)').bind(me.id, '', card).run();
+  } catch (e) { console.error('chat post', e.message); }
+}
+const morningCount = async (db, t) => (await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE assignee = ? AND due_date = ? AND routine = 'morning'").bind(t.assignee, t.due_date).first()).n;
 
 // ---------- router ----------
 export default {
@@ -106,7 +119,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
   if (path === 'settings') {
     if (method === 'PUT') {
       const b = await body(req);
-      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget', 'islam_family', 'islam_method', 'islam_school'];
+      const allowed = ['baby_name', 'baby_full_name', 'baby_due', 'lat', 'lon', 'town', 'rain_threshold', 'grocery_budget', 'meat_budget', 'islam_family', 'islam_method', 'islam_school', 'chat_task_posts'];
       const stmts = Object.entries(b).filter(([k]) => allowed.includes(k)).map(([k, v]) =>
         db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(k, String(v)));
       if (stmts.length) await db.batch(stmts);
@@ -298,8 +311,17 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
         const who = await db.prepare('SELECT name FROM users WHERE id = ?').bind(t.assignee).first();
         const grownUps = (await db.prepare('SELECT id FROM users WHERE active = 1 AND (is_parent = 1 OR is_admin = 1) AND id != ?').bind(t.assignee).all()).results.map((u) => u.id);
         await notify(db, grownUps, `☀️ ${who?.name || t.assignee} finished the morning check`, '#today');
+        await postTaskToChat(db, me, t, { title: '☀️ Morning check done!', sub: `${who?.name || t.assignee} · all ${await morningCount(db, t)} done`, key: `morning:${t.assignee}:${t.due_date}` });
+      }
+    } else if (t.area === 'Workouts' || !t.routine) {
+      if (done) {
+        const who = t.assignee === me.id ? me.name : (await db.prepare('SELECT name FROM users WHERE id = ?').bind(t.assignee).first())?.name;
+        const lateDays = Math.round((new Date(day) - new Date(t.due_date)) / 86400000);
+        const late = lateDays > 0 ? ` · ${lateDays} day${lateDays > 1 ? 's' : ''} late` : ' · on time';
+        await postTaskToChat(db, me, t, { title: `✅ ${t.title}`, sub: `Done by ${who}${late} · +${late.includes('late') ? Math.floor(t.points / 2) : t.points} pts`, key: `task:${t.id}` });
       }
     }
+    if (!done) await db.prepare("UPDATE chat_messages SET deleted = 1 WHERE card LIKE ? OR card LIKE ?").bind(`%"key":"task:${t.id}"%`, `%"key":"morning:${t.assignee}:${t.due_date}"%`).run();
     return json({ ok: true });
   }
   if (parts[0] === 'tasks' && parts[1] && !parts[2] && method === 'DELETE') {
@@ -398,6 +420,8 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
   if (ev) return ev;
   const ph = await photoApi({ req, db, path, parts, method, q, me, others });
   if (ph) return ph;
+  const ch = await chatApi({ req, db, path, parts, method, q, me });
+  if (ch) return ch;
 
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
   if (p2) return p2;

@@ -267,3 +267,60 @@ body.has-bg h1, body.has-bg h2, body.has-bg h3 { text-shadow: 0 0 6px rgba(255,2
 .prayer { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; text-align: center; font-size: .8rem; }
 .prayer div { background: #eef3f8; border-radius: 8px; padding: 4px 2px; }
 .prayer b { display: block; font-size: .9rem; }
+
+/* ---------- chat v2 ---------- */
+.msg { cursor: pointer; position: relative; user-select: text; }
+.msg .quote { border-left: 3px solid var(--brand); background: rgba(47,93,80,.08); border-radius: 6px; padding: 4px 8px; margin: 2px 0 4px; font-size: .82rem; }
+.msg.flash { box-shadow: 0 0 0 3px #e2a721; transition: box-shadow .3s; }
+.rxs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.rx { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 1px 7px; font-size: .85rem; cursor: pointer; }
+.rx.mine { border-color: var(--brand); background: var(--brand-2); }
+.msg-menu { position: fixed; left: 50%; transform: translateX(-50%); z-index: 45; background: #fff; border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 8px; width: min(360px, 94vw); }
+.msg-menu .quick { display: flex; justify-content: space-between; }
+.msg-menu .quick button { font-size: 1.6rem; background: none; border: 0; cursor: pointer; padding: 2px 4px; border-radius: 10px; }
+.msg-menu .quick button:hover { background: var(--brand-2); }
+.msg-menu .acts { display: flex; gap: 6px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+.msg-menu .acts button { flex: 1; border: 0; background: var(--brand-2); color: var(--brand); border-radius: 10px; padding: 7px 4px; cursor: pointer; font-weight: 600; }
+.reply-bar { display: flex; gap: 8px; align-items: center; max-width: 760px; margin: 0 auto 6px; background: #fff; border-left: 4px solid var(--brand); border-radius: 8px; padding: 6px 10px; font-size: .85rem; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; margin-top: 8px; }
+.emoji-grid button { font-size: 1.6rem; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px 0; cursor: pointer; }
+.pin.picked { outline: 4px solid var(--brand); }
+.composer .btn.ghost { padding: 8px 10px; }
+.card-msg { display: flex; gap: 8px; align-items: center; margin-top: 4px; padding: 8px 10px; background: #fff; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--ink); min-width: 220px; }
+.card-msg .ci { font-size: 1.5rem; }
+.card-msg .go { color: var(--brand); font-weight: 700; font-size: .85rem; white-space: nowrap; }
+.card-msg.poll { display: block; }
+.card-msg.poll .opt { position: relative; display: flex; justify-content: space-between; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; overflow: hidden; text-align: left; font-size: .9rem; }
+.card-msg.poll .opt.mine { border-color: var(--brand); }
+.card-msg.poll .opt .bar2 { position: absolute; left: 0; top: 0; bottom: 0; background: var(--brand-2); z-index: 0; }
+.card-msg.poll .opt .lbl, .card-msg.poll .opt .cnt { position: relative; z-index: 1; }
+.card-msg.poll .btn { margin-top: 4px; }
+#upbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(126px + env(safe-area-inset-bottom)); z-index: 80; background: #222; color: #fff;
+  border-radius: 14px; padding: 9px 14px; display: flex; gap: 10px; align-items: center; width: min(380px, 92vw); box-shadow: 0 6px 18px rgba(0,0,0,.25); font-size: .9rem; }
+#upbar .t { flex: 1; }
+#upbar .b { position: absolute; left: 10px; right: 10px; bottom: 4px; height: 3px; background: rgba(255,255,255,.2); border-radius: 3px; overflow: hidden; }
+#upbar .b i { display: block; height: 100%; width: 0; background: #7fd3a8; transition: width .2s; }
+#upbar .spin { width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- WhatsApp-style chat ---------- */
+body.chat-mode main { padding-top: 0; }
+.wa-head { position: sticky; top: 52px; z-index: 12; display: flex; gap: 10px; align-items: center; background: rgba(240,242,245,.95); margin: 0 -14px 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.wa-head img { width: 38px; height: 38px; border-radius: 50%; background: #fff; }
+.wa-head .muted { font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70vw; }
+.chat.wa { gap: 3px; padding-bottom: 86px; }
+.chat.wa .msg { background: #fff; border: 0; border-radius: 10px; border-top-left-radius: 2px; box-shadow: 0 1px .5px rgba(0,0,0,.13); padding: 6px 9px 4px; max-width: 82%; transition: transform .15s; }
+.chat.wa .msg.mine { background: #d9fdd3; border-top-left-radius: 10px; border-top-right-radius: 2px; }
+.chat.wa .msg .time { float: right; margin: 6px 0 -2px 10px; font-size: .66rem; }
+.chat.wa .msg img { border-radius: 8px; max-height: 320px; object-fit: cover; }
+.chat.wa .day-sep { align-self: center; background: rgba(255,255,255,.92); border-radius: 8px; padding: 3px 10px; box-shadow: 0 1px .5px rgba(0,0,0,.1); margin: 8px 0; }
+.tk { color: #8696a0; letter-spacing: -3px; margin-left: 2px; }
+.tk.blue { color: #53bdeb; }
+.composer.wa { background: transparent; border: 0; padding: 6px 8px; }
+.wa-input { display: flex; align-items: center; background: #fff; border-radius: 24px; padding: 2px 6px; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.wa-input input { border: 0 !important; background: transparent !important; padding: 10px 4px !important; outline: none; }
+.wa-input button { border: 0; background: none; font-size: 1.3rem; cursor: pointer; padding: 4px 6px; color: #54656f; }
+.send-round { width: 48px; height: 48px; border-radius: 50% !important; padding: 0 !important; font-size: 1.2rem; background: #00a884 !important; flex: none; }
+.pv { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
+.pv img { max-height: 55vh; max-width: 100%; border-radius: 10px; object-fit: contain; background: #000; }

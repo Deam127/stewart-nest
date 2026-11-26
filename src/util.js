@@ -104,7 +104,7 @@ export function forKids(text, people) {
   }
   return out;
 }
-const NAME_KEYS = new Set(['name', 'assignee_name', 'assigned_by_name', 'by_name', 'done_by_name']);
+const NAME_KEYS = new Set(['name', 'assignee_name', 'assigned_by_name', 'by_name', 'done_by_name', 'reply_name']);
 // Rewrite names in an API response for a child viewer
 export function kidView(data, people) {
   const map = Object.fromEntries(people.filter((p) => p.kid_name && (p.is_parent || p.is_admin)).map((p) => [p.name, p.kid_name]));

@@ -52,7 +52,7 @@ async function addPhotos({ date, kind, recipe_id } = {}) {
   });
   if (!files.length) return false;
   const caption = prompt(kind === 'meal' ? 'Caption (optional), e.g. "Trinchado night!"' : 'Caption (optional)') || '';
-  toast(`Uploading ${files.length} photo${files.length > 1 ? 's' : ''}…`);
+  Up.total = files.length;
   for (const f of files) {
     try {
       const key = await uploadPhoto(f);

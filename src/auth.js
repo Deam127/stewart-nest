@@ -36,8 +36,12 @@ const NEED_COLUMNS = {
   task_templates: { when_school: "TEXT NOT NULL DEFAULT 'any'", routine: 'TEXT' },
   tasks: { routine: 'TEXT' },
   shop_trips: { from_date: 'TEXT', to_date: 'TEXT' },
+  chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT' },
 };
 const NEED_TABLES = [
+  'CREATE TABLE IF NOT EXISTS chat_votes (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, opt INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))',
+  `CREATE TABLE IF NOT EXISTS chat_reactions (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (message_id, user_id, emoji))`,
   `CREATE TABLE IF NOT EXISTS meal_ratings (date TEXT NOT NULL, recipe_id TEXT NOT NULL, user_id TEXT NOT NULL, stars INTEGER, verdict TEXT, comment TEXT,
      updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (date, recipe_id, user_id))`,
   'CREATE TABLE IF NOT EXISTS recipe_items (recipe_id TEXT NOT NULL, item_id INTEGER NOT NULL, qty REAL NOT NULL, PRIMARY KEY (recipe_id, item_id))',

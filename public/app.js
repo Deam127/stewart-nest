@@ -524,6 +524,7 @@ async function viewMore() {
       <label class="f">Due date</label><input type="date" id="s-due" value="${esc(S.settings.baby_due || '')}">
       <div class="row"><div class="grow"><label class="f">Groceries & household budget (R)</label><input type="number" id="s-gb" value="${esc(S.settings.grocery_budget || 5000)}"></div>
       <div class="grow"><label class="f">Meat budget (R)</label><input type="number" id="s-mb" value="${esc(S.settings.meat_budget || 2000)}"></div></div>
+      <label class="row" style="margin-top:8px"><input type="checkbox" id="s-ctp" ${S.settings.chat_task_posts === '0' ? '' : 'checked'}> Post finished tasks in the family chat</label>
       <label class="f">Rain warning when chance of rain is at least (%)</label><input type="number" id="s-rain" value="${esc(S.settings.rain_threshold || 50)}" min="10" max="100">
       <button class="btn" style="margin-top:10px" id="s-save">Save</button></div>` : ''}
 
@@ -547,7 +548,7 @@ async function viewMore() {
   $$('[data-rec]').forEach((c) => c.onchange = () => put('recipes/' + c.dataset.rec, { active: c.checked ? 1 : 0 }).then(() => toast('Saved')));
   $$('[data-season]').forEach((s) => s.onchange = () => put('recipes/' + s.dataset.season, { season: s.value }).then(() => toast('Saved')));
   $('#s-save') && ($('#s-save').onclick = async () => {
-    S.settings = await put('settings', { baby_full_name: $('#s-bfull').value, baby_due: $('#s-due').value, rain_threshold: $('#s-rain').value, grocery_budget: $('#s-gb').value, meat_budget: $('#s-mb').value });
+    S.settings = await put('settings', { baby_full_name: $('#s-bfull').value, baby_due: $('#s-due').value, rain_threshold: $('#s-rain').value, grocery_budget: $('#s-gb').value, meat_budget: $('#s-mb').value, chat_task_posts: $('#s-ctp').checked ? '1' : '0' });
     renderHeader(); toast('Saved');
   });
   $('#pw-change').onclick = async () => {
