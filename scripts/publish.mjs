@@ -82,13 +82,18 @@ async function main() {
       run(`npx wrangler d1 export ${DB} --local --output=${file}`);
       console.log('Uploading it (takes a minute)…');
       if (!live(`npx wrangler d1 execute ${DB} --remote --yes --file=${file}`)) throw new Error('Upload of the data failed. Your laptop data is untouched; the backup is in ' + file);
+      const verify = tryRun(`npx wrangler d1 execute ${DB} --remote --json --command "SELECT COUNT(*) AS n FROM users"`);
+      if (!verify.ok || /no such table/i.test(verify.out)) throw new Error('The upload finished but the online database still looks empty. Backup file: ' + file);
       console.log(`Copied ✔ (backup kept in ${file})`);
       warn('Photos stay on the laptop: upload your favourite ones again once the app is online.');
     } else {
       console.log('Starting fresh online (recipes, family, chores, schedule)…');
       if (!live('npm run db:remote:reset')) throw new Error('Setting up the online database failed.');
+      const verify = tryRun(`npx wrangler d1 execute ${DB} --remote --json --command "SELECT COUNT(*) AS n FROM users"`);
+      if (!verify.ok || /no such table/i.test(verify.out)) throw new Error('Setup finished but the online database still looks empty.');
     }
   } else console.log('Already has data ✔ (left as is)');
+  if (empty) console.log('Online database ready ✔');
 
   // 5. publish
   const hasDomain = /"custom_domain":\s*true/.test(readFileSync(CONFIG, 'utf8'));

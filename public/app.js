@@ -104,7 +104,14 @@ async function pollNotifications(show = false) {
 
 // ---------- login ----------
 async function viewLogin() {
-  S.users = await api('users');
+  try { S.users = await api('users'); }
+  catch (e) {
+    $('#view').innerHTML = `<div class="login"><img src="/logo.svg" alt="The Stewart Nest" style="width:200px;max-width:70vw">
+      <div class="card" style="text-align:left;margin-top:16px"><strong>The Nest can't open its family database right now.</strong>
+      <p class="muted">${/no such table/i.test(e.message) ? 'The online database hasn\'t been set up yet. On the laptop, run <b>Publish to Cloudflare.bat</b> again and answer <b>Y</b> to copy the family data up.' : esc(e.message)}</p>
+      <button class="btn" onclick="location.reload()">Try again</button></div></div>`;
+    return;
+  }
   let sel = null;
   $('#view').innerHTML = `<div class="login">
     <img src="/logo.svg" alt="The Stewart Nest" style="width:220px;max-width:70vw"><div class="muted">Who's there?</div>
