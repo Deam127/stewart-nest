@@ -117,6 +117,18 @@ const ISLAMIC = [
   ['2027-08-15', null, '☪️ Mawlid an-Nabi (Prophet\'s birthday)', MS],
 ];
 
+// Used by the self-repair: re-create these only if they're missing
+export const REPAIR_DATA = [
+  ...ISLAMIC.map(([a, , t]) => `UPDATE events SET layer = 'islam', category = 'faith' WHERE title = ${q(t)} AND start_date = '${a}' AND layer IS NULL`),
+  ...ISLAMIC.map(([a, b, t, notes, remind]) => `INSERT INTO events (title, category, who, start_date, end_date, remind, notes, layer, created_by)
+     SELECT ${q(t)}, 'faith', '', '${a}', ${b ? `'${b}'` : 'NULL'}, '${remind || 'none'}', ${q(notes)}, 'islam', 'lee-roy'
+     WHERE NOT EXISTS (SELECT 1 FROM events WHERE title = ${q(t)} AND start_date = '${a}')`),
+  ...[['lee-roy', 'Lee Roy', '05-22'], ['skyler', 'Skyler', '05-30'], ['shirley', 'Shirley', '05-31']].map(([id, n, d]) =>
+    `INSERT INTO events (title, category, who, start_date, repeat, remind, person, created_by)
+     SELECT '🎂 ${n}''s birthday', 'birthday', '', '2026-${d}', 'yearly', 'week', '${id}', 'lee-roy'
+     WHERE NOT EXISTS (SELECT 1 FROM events WHERE person = '${id}' AND category = 'birthday')`),
+];
+
 export const UPGRADES = {
   3: [
     'ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',

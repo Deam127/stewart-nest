@@ -1,6 +1,6 @@
 // The Stewart Nest — logins, passwords, admin (user management) and automatic database upgrades.
 import { json, bad, body, randomHex, sha256, getCookie } from './util.js';
-import { UPGRADES } from './migrations.js';
+import { UPGRADES, REPAIR_DATA } from './migrations.js';
 import { PERMS, permsFor } from './permissions.js';
 
 const SESSION_DAYS = 60;
@@ -23,6 +23,57 @@ const MIN_LEN = 6;
 // Cloudflare doesn't let one request wait on a promise created by another, so each request checks for itself
 // (cheap: one SELECT), and a version step is "claimed" in the database so two requests never apply it twice.
 let schemaDone = false;
+let repaired = false;
+
+// Self-repair: every column/table the app needs, added if missing (safe to run any time).
+// Protects against an upgrade that was interrupted part-way, e.g. online.
+const NEED_COLUMNS = {
+  users: { is_admin: 'INTEGER NOT NULL DEFAULT 0', must_change: 'INTEGER NOT NULL DEFAULT 0', hash_algo: "TEXT NOT NULL DEFAULT 'sha256-pin'",
+    active: 'INTEGER NOT NULL DEFAULT 1', permissions: 'TEXT', kid_name: 'TEXT', birthday: 'TEXT', prefs: 'TEXT' },
+  items: { pack_qty: 'REAL', pack_unit: 'TEXT', ref: 'TEXT' },
+  recipes: { notes: 'TEXT' },
+  events: { person: 'TEXT', layer: 'TEXT' },
+  task_templates: { when_school: "TEXT NOT NULL DEFAULT 'any'", routine: 'TEXT' },
+  tasks: { routine: 'TEXT' },
+  shop_trips: { from_date: 'TEXT', to_date: 'TEXT' },
+};
+const NEED_TABLES = [
+  `CREATE TABLE IF NOT EXISTS meal_ratings (date TEXT NOT NULL, recipe_id TEXT NOT NULL, user_id TEXT NOT NULL, stars INTEGER, verdict TEXT, comment TEXT,
+     updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (date, recipe_id, user_id))`,
+  'CREATE TABLE IF NOT EXISTS recipe_items (recipe_id TEXT NOT NULL, item_id INTEGER NOT NULL, qty REAL NOT NULL, PRIMARY KEY (recipe_id, item_id))',
+  'CREATE TABLE IF NOT EXISTS rotation (season TEXT NOT NULL, weekday INTEGER NOT NULL, recipe_id TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (season, weekday, recipe_id))',
+  'CREATE TABLE IF NOT EXISTS event_skips (event_id INTEGER NOT NULL, date TEXT NOT NULL, PRIMARY KEY (event_id, date))',
+  'CREATE TABLE IF NOT EXISTS reminder_log (event_id INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (event_id, date, kind))',
+  `CREATE TABLE IF NOT EXISTS photos (id INTEGER PRIMARY KEY AUTOINCREMENT, photo_key TEXT NOT NULL, caption TEXT, date TEXT NOT NULL,
+     kind TEXT NOT NULL DEFAULT 'memory', recipe_id TEXT, user_id TEXT, slideshow INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+];
+// data that later upgrades set up — re-applied only where it's missing
+const NEED_DATA = [
+  "UPDATE users SET is_admin = 1 WHERE id = 'lee-roy'",
+  "UPDATE users SET kid_name = 'Dad' WHERE id = 'lee-roy' AND kid_name IS NULL",
+  "UPDATE users SET kid_name = 'Mom' WHERE id = 'shirley' AND kid_name IS NULL",
+  "UPDATE users SET permissions = '{}' WHERE id = 'skyler' AND permissions IS NULL",
+  "UPDATE users SET birthday = '05-22' WHERE id = 'lee-roy' AND birthday IS NULL",
+  "UPDATE users SET birthday = '05-30' WHERE id = 'skyler' AND birthday IS NULL",
+  "UPDATE users SET birthday = '05-31' WHERE id = 'shirley' AND birthday IS NULL",
+  "INSERT OR IGNORE INTO settings (key, value) VALUES ('islam_family', 'Your sister''s family'), ('islam_method', '3'), ('islam_school', '1'), ('dogs', 'Niela & Luka')",
+  ...REPAIR_DATA,
+];
+async function repair(db) {
+  for (const sql of NEED_TABLES) await db.prepare(sql).run();
+  for (const [table, cols] of Object.entries(NEED_COLUMNS)) {
+    let have;
+    try { have = new Set((await db.prepare(`PRAGMA table_info(${table})`).all()).results.map((c) => c.name)); } catch { continue; }
+    if (!have.size) continue;
+    for (const [col, type] of Object.entries(cols)) {
+      if (have.has(col)) continue;
+      try { await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run(); console.log(`repair: added ${table}.${col}`); }
+      catch (e) { if (!/duplicate column/i.test(e.message)) console.error('repair failed', table, col, e.message); }
+    }
+  }
+  for (const sql of NEED_DATA) { try { await db.prepare(sql).run(); } catch (e) { console.error('repair data', e.message); } }
+}
+
 export async function ensureSchema(db) {
   if (schemaDone) return;
   let v;
@@ -44,7 +95,10 @@ export async function ensureSchema(db) {
     }
     v = target;
   }
-  if (v >= latest) schemaDone = true;
+  if (v >= latest) {
+    if (!repaired) { await repair(db); repaired = true; }
+    schemaDone = true;
+  }
 }
 
 // ---------- password hashing (PBKDF2-SHA256) ----------
