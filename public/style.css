@@ -324,3 +324,14 @@ body.chat-mode main { padding-top: 0; }
 .send-round { width: 48px; height: 48px; border-radius: 50% !important; padding: 0 !important; font-size: 1.2rem; background: #00a884 !important; flex: none; }
 .pv { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
 .pv img { max-height: 55vh; max-width: 100%; border-radius: 10px; object-fit: contain; background: #000; }
+
+/* chat: admin select-and-delete */
+.sel-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: flex; gap: 8px; align-items: center;
+  padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top)); background: var(--card, #fff); box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.sel-bar .grow { flex: 1; }
+.msg.picked { outline: 3px solid #25a3ff; outline-offset: 2px; background-image: linear-gradient(rgba(37,163,255,.14), rgba(37,163,255,.14)); }
+
+/* bell: bigger tap target, no tap delay */
+#bell { position: relative; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+#bell:active { transform: scale(.9); }
+.icon-btn { touch-action: manipulation; }

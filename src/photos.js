@@ -1,7 +1,8 @@
 // The Stewart Nest — shared photos: memories gallery, supper photos and activity photos pinned to calendar days.
 import { json, bad, body, isDate, saToday, fmtShort, notify } from './util.js';
+import { dropPhotoIfUnused } from './chat.js';
 
-export async function photos({ req, db, path, parts, method, q, me, others }) {
+export async function photos({ req, env, db, path, parts, method, q, me, others }) {
   if (path === 'gallery' && method === 'GET') {
     const from = q.get('from'), to = q.get('to'), kind = q.get('kind');
     let sql = `SELECT p.*, u.name, u.emoji, r.name AS recipe_name FROM photos p LEFT JOIN users u ON u.id = p.user_id
@@ -45,6 +46,7 @@ export async function photos({ req, db, path, parts, method, q, me, others }) {
     if (method === 'DELETE') {
       if (p.user_id !== me.id && !me.is_parent && !me.is_admin) return bad('Only whoever added it (or Mom/Dad) can remove it', 403);
       await db.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+      await dropPhotoIfUnused(env, db, p.photo_key);
       return json({ ok: true });
     }
   }

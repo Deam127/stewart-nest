@@ -36,7 +36,7 @@ const NEED_COLUMNS = {
   task_templates: { when_school: "TEXT NOT NULL DEFAULT 'any'", routine: 'TEXT' },
   tasks: { routine: 'TEXT' },
   shop_trips: { from_date: 'TEXT', to_date: 'TEXT' },
-  chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT' },
+  chat_messages: { reply_to: 'INTEGER', deleted: 'INTEGER NOT NULL DEFAULT 0', card: 'TEXT', client_id: 'TEXT' },
 };
 const NEED_TABLES = [
   'CREATE TABLE IF NOT EXISTS chat_votes (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, opt INTEGER NOT NULL, PRIMARY KEY (message_id, user_id))',
@@ -53,6 +53,7 @@ const NEED_TABLES = [
 ];
 // data that later upgrades set up — re-applied only where it's missing
 const NEED_DATA = [
+  'CREATE UNIQUE INDEX IF NOT EXISTS chat_client ON chat_messages (user_id, client_id)',
   "UPDATE users SET is_admin = 1 WHERE id = 'lee-roy'",
   "UPDATE users SET kid_name = 'Dad' WHERE id = 'lee-roy' AND kid_name IS NULL",
   "UPDATE users SET kid_name = 'Mom' WHERE id = 'shirley' AND kid_name IS NULL",

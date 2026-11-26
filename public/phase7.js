@@ -13,7 +13,9 @@ const EMOJI = {
   '🐾 Animals': '🐶 🐕 🦮 🐩 🐾 🐱 🐈 🐰 🐹 🐻 🦁 🐘 🦒 🦓 🦏 🐒 🐔 🐣 🦆 🐟 🐢 🦋 🐝 🌸 🌻 🌳',
   '🇿🇦 Flags': '🇿🇦 🏉 🦁 🇳🇦 🇬🇧 🇵🇹 🇳🇱',
 };
-const C7 = { msgs: [], reactions: {}, votes: {}, reads: [], people: 3, last: 0, replyTo: null, timer: null };
+const C7 = { msgs: [], reactions: {}, votes: {}, reads: [], people: 3, last: 0, replyTo: null, timer: null, sel: null, busy: false };
+window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#chat')) { C7.sel = null; document.getElementById('sel-bar')?.remove(); } });
+const newCid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const ticks = (m) => {
   const others = C7.reads.filter((r) => r.user_id !== S.me.id);
   const seen = others.filter((r) => r.last_id >= m.id).length;
@@ -28,9 +30,9 @@ function bubble(m, prev) {
   const react = C7.reactions[m.id] || {};
   const chips = Object.entries(react).map(([e, who]) => `<button class="rx ${who.some((w) => w.user_id === S.me.id) ? 'mine' : ''}" data-rx="${m.id}" data-e="${e}" title="${esc(who.map((w) => w.name).join(', '))}">${e}${who.length > 1 ? ' ' + who.length : ''}</button>`).join('');
   return `${!prev || dayStr(m) !== dayStr(prev) ? `<div class="day-sep">${dayStr(m)}</div>` : ''}
-    <div class="msg ${mine ? 'mine' : ''}" id="m-${m.id}" data-mid="${m.id}">
+    <div class="msg ${mine ? 'mine' : ''} ${C7.sel && C7.sel.has(m.id) ? 'picked' : ''}" id="m-${m.id}" data-mid="${m.id}">
       ${mine ? '' : `<div class="who" style="color:${m.colour}">${m.emoji} ${esc(m.name)}</div>`}
-      ${m.reply_to ? `<div class="quote" data-goto="${m.reply_to}"><strong>${esc(m.reply_name || '')}</strong><br>${m.reply_deleted ? '<i>message deleted</i>' : m.reply_photo && !m.reply_text ? '📷 Photo' : esc((m.reply_text || '').slice(0, 90))}</div>` : ''}
+      ${m.reply_to ? `<div class="quote" data-goto="${m.reply_to}"><strong>${esc(m.reply_name || '')}</strong>${m.reply_name ? '<br>' : ''}${m.reply_deleted || !m.reply_name ? '<i>message deleted</i>' : m.reply_photo && !m.reply_text ? '📷 Photo' : esc((m.reply_text || '').slice(0, 90))}</div>` : ''}
       ${m.deleted ? '<i class="muted">🚫 message deleted</i>' : `${m.text ? esc(m.text).replace(/\n/g, '<br>') : ''}
       ${m.photo_key ? `<img src="${photoUrl(m.photo_key)}" loading="lazy" alt="photo" data-big="${m.photo_key}">` : ''}
       ${m.card ? cardHtml(m) : ''}`}
@@ -95,9 +97,27 @@ function wireBubbles() {
     e.stopPropagation();
     const m = C7.msgs.find((x) => x.photo_key === img.dataset.big);
     lightbox([{ photo_key: img.dataset.big, caption: m?.text, date: (m?.created_at || '').slice(0, 10) || todayStr(), kind: 'memory', name: m?.name, emoji: m?.emoji, user_id: m?.user_id, slideshow: 0, id: 0 }], 0);
-    setTimeout(() => $$('.lightbox [data-ss], .lightbox [data-cap], .lightbox [data-del]').forEach((x) => x.remove()), 0);
+    setTimeout(() => {
+      $$('.lightbox [data-ss], .lightbox [data-cap], .lightbox [data-del]').forEach((x) => x.remove());
+      if (m && (m.user_id === S.me.id || S.me.is_admin)) {
+        const lb = $('.lightbox') || document.body.lastElementChild;
+        const b = document.createElement('button'); b.className = 'btn small danger'; b.textContent = '🗑️ Delete for everyone';
+        b.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9999';
+        b.onclick = async (ev) => { ev.stopPropagation(); if (!confirm('Delete this photo from the chat for everyone?')) return;
+          await deleteForAll([m.id]); b.remove(); (lb && lb !== document.body ? lb : null)?.remove(); $$('.sheet, .lightbox').forEach((x) => x.remove()); };
+        (lb || document.body).appendChild(b);
+      }
+    }, 0);
   });
   // tap (or press and hold) a message for the action menu
+  if (C7.sel) {
+    $$('.msg[data-mid]').forEach((el) => el.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const id = Number(el.dataset.mid); C7.sel.has(id) ? C7.sel.delete(id) : C7.sel.add(id);
+      el.classList.toggle('picked', C7.sel.has(id)); selBar();
+    });
+    return;
+  }
   $$('.msg[data-mid]').forEach((el) => {
     let t;
     el.oncontextmenu = (e) => { e.preventDefault(); actions(Number(el.dataset.mid)); };
@@ -126,7 +146,7 @@ function actions(id) {
   const menu = document.createElement('div');
   menu.className = 'msg-menu';
   menu.innerHTML = `<div class="quick">${QUICK.map((e) => `<button data-q="${e}">${e}</button>`).join('')}<button data-more title="More emoji">＋</button></div>
-    <div class="acts"><button data-reply>↩️ Reply</button>${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete</button>' : ''}<button data-close>✕</button></div>`;
+    <div class="acts"><button data-reply>↩️ Reply</button>${m.text ? '<button data-copy>📋 Copy</button>' : ''}${m.user_id === S.me.id || S.me.is_admin ? '<button data-delm>🗑️ Delete for everyone</button>' : ''}${S.me.is_admin ? '<button data-sel>☑️ Select</button>' : ''}<button data-close>✕</button></div>`;
   document.body.appendChild(menu);
   const el = $('#m-' + id); const r = el.getBoundingClientRect();
   menu.style.top = Math.max(60, Math.min(window.innerHeight - 140, r.top - 100)) + 'px';
@@ -134,7 +154,8 @@ function actions(id) {
   $('[data-more]', menu).onclick = () => { menu.remove(); emojiPicker((e) => react(id, e)); };
   $('[data-reply]', menu).onclick = () => { menu.remove(); startReply(m); };
   $('[data-copy]', menu) && ($('[data-copy]', menu).onclick = async () => { menu.remove(); try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { /* no clipboard */ } });
-  $('[data-delm]', menu) && ($('[data-delm]', menu).onclick = async () => { menu.remove(); if (!confirm('Delete this message for everyone?')) return; await del('chat/' + id); refresh(true); });
+  $('[data-delm]', menu) && ($('[data-delm]', menu).onclick = async () => { menu.remove(); if (!confirm(`Delete this ${m.photo_key ? 'photo' : 'message'} for everyone?`)) return; await deleteForAll([id]); });
+  $('[data-sel]', menu) && ($('[data-sel]', menu).onclick = () => { menu.remove(); startSelect(id); });
   $('[data-close]', menu).onclick = () => menu.remove();
   setTimeout(() => document.addEventListener('click', function off(e) { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', off); } }), 0);
 }
@@ -240,14 +261,57 @@ async function nestPicker() {
   $('#np-send', s).onclick = async () => { s.remove(); for (const k of picked) await sendMsg(k); };
 }
 
+// delete for everyone (your own, or anything if you're the admin) — gone from every phone on its next refresh
+async function deleteForAll(ids) {
+  try {
+    if (ids.length === 1) await del('chat/' + ids[0]); else await api('chat/delete', { body: { ids } });
+    C7.msgs = C7.msgs.filter((x) => !ids.includes(x.id));
+    toast(ids.length > 1 ? `${ids.length} deleted for everyone` : 'Deleted for everyone');
+    drawAll();
+  } catch (e) { toast(e.message); }
+}
+// admin: pick several messages / photos and delete them in one go
+function startSelect(first) {
+  C7.sel = new Set(first ? [first] : []);
+  drawAll(); selBar();
+}
+function selBar() {
+  let bar = $('#sel-bar');
+  if (!C7.sel) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('div'); bar.id = 'sel-bar'; bar.className = 'sel-bar'; document.body.appendChild(bar); }
+  const n = C7.sel.size;
+  bar.innerHTML = `<button class="btn small ghost" id="sel-x">✕ Cancel</button><strong class="grow">${n} selected</strong>
+    <button class="btn small ghost" id="sel-photos">📷 All photos</button><button class="btn small danger" id="sel-del" ${n ? '' : 'disabled'}>🗑️ Delete</button>`;
+  $('#sel-x', bar).onclick = () => { C7.sel = null; selBar(); drawAll(); };
+  $('#sel-photos', bar).onclick = () => { C7.msgs.filter((x) => x.photo_key).forEach((x) => C7.sel.add(x.id)); drawAll(); selBar(); };
+  $('#sel-del', bar).onclick = async () => {
+    if (!confirm(`Delete ${n} message${n > 1 ? 's' : ''} for everyone? This can't be undone.`)) return;
+    const ids = [...C7.sel]; C7.sel = null; selBar(); await deleteForAll(ids);
+  };
+}
+
 async function sendMsg(photo_key, textOverride, card) {
   const text = textOverride ?? (photo_key || card ? '' : $('#c-text').value.trim());
   if (!photo_key && !card && textOverride === undefined && !text) return;
   if (!text && !photo_key && !card) return;
+  const typed = !photo_key && textOverride === undefined && !card;
+  if (typed && C7.busy) return; // already sending what's in the box
   const reply_to = C7.replyTo?.id || null;
-  if (!photo_key && textOverride === undefined && !card) $('#c-text').value = '';
+  const client_id = newCid(); // the server posts each of these once, even if the phone sends it twice
+  if (typed) { $('#c-text').value = ''; C7.busy = true; }
   if (C7.replyTo) { C7.replyTo = null; $('#c-reply').hidden = true; }
-  await api('chat', { body: { text, photo_key, reply_to, card } });
+  try {
+    let tries = 0;
+    for (;;) {
+      try { await api('chat', { body: { text, photo_key, reply_to, card, client_id } }); break; }
+      catch (e) {
+        // weak signal: try again with the same id (it can't double up); give up after 3 tries
+        if (++tries >= 3 || /log in|Empty|Unknown|poll/i.test(e.message)) { if (typed && !$('#c-text').value) $('#c-text').value = text; throw e; }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+  } catch (e) { toast(e.message); return; }
+  finally { if (typed) C7.busy = false; }
   await refresh();
   window.scrollTo(0, document.body.scrollHeight);
 }
@@ -259,11 +323,17 @@ async function refresh(full = false) {
     const d = full ? await api('chat') : await api(`chat?after=${C7.last}&since=${first}`);
     if (full) C7.msgs = d.messages;
     else {
-      const fresh = d.messages.filter((m) => !C7.msgs.some((x) => x.id === m.id));
-      fresh.forEach((m) => C7.msgs.push(m));
-      const fromOthers = fresh.filter((m) => m.user_id !== S.me.id);
-      if (fromOthers.length && window.Alerts) Alerts.ping({ title: `💬 ${fromOthers[0].name}`, body: fromOthers[0].text || (fromOthers[0].photo_key ? '📷 Photo' : '📌 Shared something'), link: '#chat', quiet: true });
-      // deletions only show up on a full reload; fine for a family chat
+      const have = new Set(C7.msgs.map((x) => x.id));
+      d.messages.forEach((m) => { if (!have.has(m.id)) { C7.msgs.push(m); have.add(m.id); } });
+      // deleted for everyone → gone here too
+      if (Array.isArray(d.ids)) { const keep = new Set(d.ids); C7.msgs = C7.msgs.filter((x) => x.id < (d.from || 0) || keep.has(x.id)); }
+    }
+    C7.msgs.sort((a, b) => a.id - b.id);
+    // one gentle ping per new message from someone else (the phone notification is handled by the badge check)
+    const newest = [...C7.msgs].reverse().find((m) => m.user_id !== S.me.id && !m.deleted);
+    if (window.Alerts && newest) {
+      if (document.hidden) { /* badge check sends the phone notification */ }
+      else Alerts.chatAlert({ id: newest.id, name: newest.name, body: newest.text || (newest.photo_key ? '📷 Photo' : '📌 Shared something') }, true);
     }
     C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3;
     C7.last = C7.msgs.length ? C7.msgs[C7.msgs.length - 1].id : 0;
@@ -273,10 +343,11 @@ async function refresh(full = false) {
 
 ROUTES.chat = async () => {
   const d = await api('chat');
-  C7.msgs = d.messages; C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3; C7.last = C7.msgs.length ? C7.msgs[C7.msgs.length - 1].id : 0; C7.replyTo = null;
+  C7.msgs = d.messages; C7.reactions = d.reactions; C7.votes = d.votes || {}; C7.reads = d.reads || []; C7.people = d.people || 3; C7.last = C7.msgs.length ? C7.msgs[C7.msgs.length - 1].id : 0; C7.replyTo = null; C7.sel = null; selBar();
+  if (window.Alerts && C7.last) Alerts.markChat(C7.last); // opening the chat counts as seeing everything
   $('#chat-n').hidden = true;
   $('#view').innerHTML = `<div class="wa-head"><img src="/icon.svg" alt=""><div><strong>Stewart family</strong>
-      <div class="muted">${S.users.map((u) => esc(u.name)).join(', ')}</div></div></div>
+      <div class="muted">${S.users.map((u) => esc(u.name)).join(', ')}</div></div>${S.me.is_admin ? '<button class="btn small ghost" id="c-select" style="margin-left:auto" title="Select messages to delete">☑️ Select</button>' : ''}</div>
     <div class="chat wa" id="chat"></div>
     <div class="composer wa">
       <div class="reply-bar" id="c-reply" hidden></div>
@@ -294,7 +365,8 @@ ROUTES.chat = async () => {
   clearInterval(P2.chatTimer); clearInterval(C7.timer);
   C7.timer = setInterval(() => (location.hash.startsWith('#chat') ? refresh() : clearInterval(C7.timer)), 4000);
   $('#c-send').onclick = () => sendMsg();
-  $('#c-text').onkeydown = (e) => { if (e.key === 'Enter') sendMsg(); };
+  $('#c-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing && !e.repeat) { e.preventDefault(); sendMsg(); } };
+  $('#c-select') && ($('#c-select').onclick = () => startSelect());
   $('#c-att').onclick = attachMenu;
   $('#c-cam').onclick = async () => { const f = await pickPhotos(true); if (f.length) photoPreview(f); };
   $('#c-emo').onclick = () => {

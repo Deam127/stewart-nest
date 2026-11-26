@@ -35,6 +35,14 @@ const Alerts = {
       }
     } catch { /* ignore */ }
   },
+  // chat: one alert per message, however many parts of the app notice it
+  chatSeen() { return Number(this.get('chat-seen-' + (typeof S !== 'undefined' && S.me ? S.me.id : ''), '0')); },
+  markChat(id) { if (id > this.chatSeen()) this.set('chat-seen-' + (typeof S !== 'undefined' && S.me ? S.me.id : ''), String(id)); },
+  chatAlert(m, quiet = false) {
+    if (!m || !m.id || m.id <= this.chatSeen()) return;
+    this.markChat(m.id);
+    this.ping({ title: `💬 ${m.name || 'Family chat'}`, body: m.body || '', link: '#chat', quiet });
+  },
   buzz(pattern = [120, 60, 120]) { if (this.get('vibrate', '1') === '1' && navigator.vibrate) try { navigator.vibrate(pattern); } catch { /* */ } },
   // a new message/notification: in the app → sound + vibrate; app in the background → phone notification
   async ping({ title = 'The Stewart Nest', body = '', link = '#chat', quiet = false } = {}) {

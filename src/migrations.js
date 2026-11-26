@@ -249,4 +249,13 @@ export const UPGRADES = {
     `CREATE TABLE IF NOT EXISTS chat_reactions (message_id INTEGER NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL,
        created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (message_id, user_id, emoji))`,
   ],
+  11: [
+    // each message carries a one-off id from the phone, so a double tap or a retry never posts it twice
+    'ALTER TABLE chat_messages ADD COLUMN client_id TEXT',
+    'CREATE UNIQUE INDEX IF NOT EXISTS chat_client ON chat_messages (user_id, client_id)',
+    // deleting now removes a message completely, so clear out the old "message deleted" placeholders
+    'DELETE FROM chat_reactions WHERE message_id IN (SELECT id FROM chat_messages WHERE deleted = 1)',
+    'DELETE FROM chat_votes WHERE message_id IN (SELECT id FROM chat_messages WHERE deleted = 1)',
+    'DELETE FROM chat_messages WHERE deleted = 1',
+  ],
 };

@@ -77,10 +77,20 @@ function renderHeader() {
 }
 
 // ---------- notifications ----------
+function drawNotifs(list) {
+  const p = $('#notif-panel');
+  p.innerHTML = `<div class="spread"><strong>Notifications</strong><button class="btn small ghost" id="n-close">Close</button></div>` +
+    (list === null ? '<div class="empty">Loading…</div>' : list.length ? list.map((n) => `<div class="n-item ${n.is_read ? '' : 'unread'}">${n.link ? `<a href="${esc(n.link)}">${esc(n.text)}</a>` : esc(n.text)}
+      <div class="muted">${new Date(n.created_at + 'Z').toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</div></div>`).join('')
+      : '<div class="empty">Nothing yet</div>');
+  $('#n-close').onclick = (e) => { e.stopPropagation(); p.hidden = true; };
+  $$('a', p).forEach((a) => a.addEventListener('click', () => (p.hidden = true)));
+}
 async function pollNotifications(show = false) {
   if (!S.me) return;
   try {
     const list = await api('notifications');
+    S.notifs = list;
     const unread = list.filter((n) => !n.is_read);
     $('#bell-n').hidden = !unread.length; $('#bell-n').textContent = unread.length;
     const newest = list[0]?.id || 0;
@@ -89,18 +99,18 @@ async function pollNotifications(show = false) {
       if (fresh.length) window.Alerts && Alerts.ping({ body: fresh.length > 1 ? `${fresh.length} new notifications` : fresh[0].text, link: fresh[0].link || '#calendar' });
     }
     S.lastNotif = Math.max(S.lastNotif, newest);
-    if (show) {
-      const p = $('#notif-panel');
-      p.innerHTML = `<div class="spread"><strong>Notifications</strong><button class="btn small ghost" id="n-close">Close</button></div>` +
-        (list.length ? list.map((n) => `<div class="n-item ${n.is_read ? '' : 'unread'}">${n.link ? `<a href="${esc(n.link)}">${esc(n.text)}</a>` : esc(n.text)}
-          <div class="muted">${new Date(n.created_at + 'Z').toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}</div></div>`).join('')
-          : '<div class="empty">Nothing yet</div>');
-      p.hidden = false;
-      $('#n-close').onclick = () => (p.hidden = true);
-      $$('a', p).forEach((a) => a.addEventListener('click', () => (p.hidden = true)));
-      if (unread.length) { await api('notifications/read', { body: {} }); $('#bell-n').hidden = true; }
-    }
+    const p = $('#notif-panel');
+    if (show || !p.hidden) drawNotifs(list); // refresh what's open with the latest
+    if ((show || !p.hidden) && unread.length) { $('#bell-n').hidden = true; api('notifications/read', { body: {} }).catch(() => {}); }
   } catch { /* ignore */ }
+}
+// the bell opens straight away with what's already loaded, then freshens up; tap again to close
+function toggleBell(e) {
+  e && e.stopPropagation();
+  const p = $('#notif-panel');
+  if (!p.hidden) { p.hidden = true; return; }
+  drawNotifs(S.notifs || null); p.hidden = false;
+  pollNotifications(true);
 }
 
 // ---------- login ----------
@@ -616,7 +626,8 @@ async function boot() {
 }
 
 window.addEventListener('hashchange', route);
-$('#bell').onclick = () => pollNotifications(true);
+$('#bell').onclick = toggleBell;
+document.addEventListener('click', (e) => { const p = $('#notif-panel'); if (!p.hidden && !p.contains(e.target) && !$('#bell').contains(e.target)) p.hidden = true; });
 $('#me-btn').onclick = () => (location.hash = '#more');
 setInterval(() => pollNotifications(), 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollNotifications(); });

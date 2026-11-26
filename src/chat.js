@@ -26,7 +26,30 @@ async function votesFor(db, fromId) {
 }
 const parseCard = (c) => { try { return c ? JSON.parse(c) : null; } catch { return null; } };
 
-export async function chat({ req, db, path, parts, method, q, me }) {
+// Remove a photo from storage once nothing in the Nest uses it any more.
+export async function dropPhotoIfUnused(env, db, key) {
+  if (!key || !env?.PHOTOS) return;
+  const used = await db.prepare(`SELECT 1 FROM chat_messages WHERE photo_key = ?1 UNION ALL SELECT 1 FROM photos WHERE photo_key = ?1
+    UNION ALL SELECT 1 FROM items WHERE photo_key = ?1 LIMIT 1`).bind(key).first().catch(() => ({ keep: 1 }));
+  if (!used) { try { await env.PHOTOS.delete(key); } catch (e) { console.error('photo delete', e.message); } }
+}
+
+// Delete messages for everyone: the message, its reactions and votes, and its photo if nothing else uses it.
+export async function removeMessages(db, env, ids) {
+  ids = [...new Set(ids.map(Number).filter(Boolean))];
+  if (!ids.length) return 0;
+  const marks = ids.map(() => '?').join(',');
+  const keys = (await db.prepare(`SELECT photo_key FROM chat_messages WHERE id IN (${marks}) AND photo_key IS NOT NULL`).bind(...ids).all()).results.map((r) => r.photo_key);
+  await db.batch([
+    db.prepare(`DELETE FROM chat_reactions WHERE message_id IN (${marks})`).bind(...ids),
+    db.prepare(`DELETE FROM chat_votes WHERE message_id IN (${marks})`).bind(...ids),
+    db.prepare(`DELETE FROM chat_messages WHERE id IN (${marks})`).bind(...ids),
+  ]);
+  for (const k of keys) await dropPhotoIfUnused(env, db, k);
+  return ids.length;
+}
+
+export async function chat({ req, env, db, path, parts, method, q, me }) {
   if (parts[0] !== 'chat') return null;
 
   // messages (newest 150, or everything after a given id) + reactions on the loaded window
@@ -39,7 +62,9 @@ export async function chat({ req, db, path, parts, method, q, me }) {
     if (last) await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?)
       ON CONFLICT(user_id) DO UPDATE SET last_id = MAX(last_id, excluded.last_id)`).bind(me.id, last).run();
     const from = since || (results[0]?.id ?? after);
-    return json({
+    // ids still in the chat from the oldest one this phone has; anything missing was deleted for everyone
+    const ids = (await db.prepare('SELECT id FROM chat_messages WHERE id >= ? ORDER BY id').bind(from || 0).all()).results.map((r) => r.id);
+    return json({ ids, from: from || 0,
       messages: results.map((m) => (m.deleted ? { ...m, text: null, photo_key: null, card: null } : { ...m, card: parseCard(m.card) })),
       reactions: await reactionsFor(db, from || 0), votes: await votesFor(db, from || 0),
       reads: (await db.prepare('SELECT r.user_id, r.last_id FROM chat_reads r JOIN users u ON u.id = r.user_id WHERE u.active = 1').all()).results,
@@ -48,8 +73,16 @@ export async function chat({ req, db, path, parts, method, q, me }) {
   }
 
   if (path === 'chat' && method === 'POST') {
-    const { text, photo_key, reply_to, card } = await body(req);
+    const { text, photo_key, reply_to, card, client_id } = await body(req);
     if (!text?.trim() && !photo_key && !card) return bad('Empty message');
+    const cid = typeof client_id === 'string' ? client_id.slice(0, 64) : null;
+    // the same message sent twice (double tap, slow network retry) is only posted once
+    const again = cid
+      ? await db.prepare('SELECT id FROM chat_messages WHERE user_id = ? AND client_id = ?').bind(me.id, cid).first()
+      : await db.prepare(`SELECT id FROM chat_messages WHERE user_id = ? AND text = ? AND COALESCE(photo_key, '') = ? AND card IS NULL
+          AND created_at >= datetime('now', '-20 seconds') ORDER BY id DESC LIMIT 1`).bind(me.id, (text || '').trim().slice(0, 2000), photo_key || '').first();
+    if (again && !card) return json({ ok: true, id: again.id, duplicate: true });
+    if (again && cid) return json({ ok: true, id: again.id, duplicate: true });
     let cardJson = null;
     if (card) {
       if (!['task', 'supper', 'event', 'recipe', 'poll', 'day'].includes(card.type)) return bad('Unknown card');
@@ -57,10 +90,29 @@ export async function chat({ req, db, path, parts, method, q, me }) {
       cardJson = JSON.stringify(card);
       if (cardJson.length > 3000) return bad('Card too big');
     }
-    const r = await db.prepare('INSERT INTO chat_messages (user_id, text, photo_key, reply_to, card) VALUES (?, ?, ?, ?, ?)')
-      .bind(me.id, (text || '').trim().slice(0, 2000), photo_key || null, reply_to ? Number(reply_to) : null, cardJson).run();
+    let r;
+    try {
+      r = await db.prepare('INSERT INTO chat_messages (user_id, text, photo_key, reply_to, card, client_id) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(me.id, (text || '').trim().slice(0, 2000), photo_key || null, reply_to ? Number(reply_to) : null, cardJson, cid).run();
+    } catch (e) {
+      // two copies arrived at the same moment: the unique index kept one
+      const had = cid && (await db.prepare('SELECT id FROM chat_messages WHERE user_id = ? AND client_id = ?').bind(me.id, cid).first());
+      if (had) return json({ ok: true, id: had.id, duplicate: true });
+      throw e;
+    }
     await db.prepare(`INSERT INTO chat_reads (user_id, last_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_id = excluded.last_id`).bind(me.id, r.meta.last_row_id).run();
     return json({ ok: true, id: r.meta.last_row_id });
+  }
+
+  // admin: delete several messages / photos for everyone
+  if (path === 'chat/delete' && method === 'POST') {
+    const { ids } = await body(req);
+    if (!Array.isArray(ids) || !ids.length) return bad('Pick messages to delete');
+    if (!me.is_admin) {
+      const mine = (await db.prepare(`SELECT COUNT(*) AS n FROM chat_messages WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).bind(me.id, ...ids).first()).n;
+      if (mine !== ids.length) return bad('You can only delete your own messages', 403);
+    }
+    return json({ ok: true, deleted: await removeMessages(db, env, ids.slice(0, 500)) });
   }
 
   const id = Number(parts[1]);
@@ -89,10 +141,10 @@ export async function chat({ req, db, path, parts, method, q, me }) {
     return json({ ok: true });
   }
 
-  // delete your own message (shows as "message deleted")
+  // delete for everyone: your own messages, or any message if you're the admin
   if (!parts[2] && method === 'DELETE') {
     if (m.user_id !== me.id && !me.is_admin) return bad('You can only delete your own messages', 403);
-    await db.prepare('UPDATE chat_messages SET deleted = 1 WHERE id = ?').bind(id).run();
+    await removeMessages(db, env, [id]);
     return json({ ok: true });
   }
   return null;

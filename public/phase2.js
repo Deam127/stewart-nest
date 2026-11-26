@@ -109,10 +109,11 @@ async function pollBadges() {
     const b = await api('badges');
     const onChat = location.hash.startsWith('#chat');
     $('#chat-n').hidden = onChat || !b.chat; $('#chat-n').textContent = b.chat;
-    // new chat messages while you're elsewhere (or the app is in the background): sound / vibrate / phone notification
-    if (b.chat > (P2.lastChatBadge || 0) && (!onChat || document.hidden) && P2.lastChatBadge !== undefined)
-      window.Alerts && Alerts.ping({ title: '💬 Family chat', body: `${b.chat} new message${b.chat > 1 ? 's' : ''}`, link: '#chat' });
-    P2.lastChatBadge = b.chat;
+    // new chat message while you're elsewhere (or the app is in the background): one alert per message
+    if (window.Alerts && b.latest) {
+      if (!Alerts.chatSeen()) Alerts.markChat(b.latest.id); // first run on this phone: don't alert for old messages
+      else if (!onChat || document.hidden) Alerts.chatAlert(b.latest);
+    }
     P2.badgeReady = true;
   } catch { /* ignore */ }
 }

@@ -46,11 +46,16 @@ export async function phase2({ req, env, db, url, path, parts, method, q, me, ot
     return json({ ok: true, id: r.meta.last_row_id });
   }
   if (path === 'badges' && method === 'GET') {
-    const [n, c] = await db.batch([
+    const [n, c, latest] = await db.batch([
       db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0').bind(me.id),
-      db.prepare(`SELECT COUNT(*) AS n FROM chat_messages WHERE user_id != ? AND id > COALESCE((SELECT last_id FROM chat_reads WHERE user_id = ?), 0)`).bind(me.id, me.id),
+      db.prepare(`SELECT COUNT(*) AS n FROM chat_messages WHERE user_id != ? AND deleted = 0 AND id > COALESCE((SELECT last_id FROM chat_reads WHERE user_id = ?), 0)`).bind(me.id, me.id),
+      // newest message from someone else, so each phone alerts once per message
+      db.prepare(`SELECT c.id, c.text, c.photo_key, c.card, u.name FROM chat_messages c JOIN users u ON u.id = c.user_id
+        WHERE c.user_id != ? AND c.deleted = 0 ORDER BY c.id DESC LIMIT 1`).bind(me.id),
     ]);
-    return json({ notifications: n.results[0].n, chat: c.results[0].n });
+    const l = latest.results[0];
+    return json({ notifications: n.results[0].n, chat: c.results[0].n,
+      latest: l ? { id: l.id, name: l.name, body: l.text || (l.photo_key ? '📷 Photo' : l.card ? '📌 Shared something' : '') } : null });
   }
 
   // ================= fun ideas =================

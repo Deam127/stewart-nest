@@ -7,7 +7,7 @@ import { ratings } from './ratings.js';
 import { recipes as recipeApi } from './recipes.js';
 import { events as eventApi, occurrences } from './events.js';
 import { photos as photoApi } from './photos.js';
-import { chat as chatApi } from './chat.js';
+import { chat as chatApi, removeMessages } from './chat.js';
 import { requiredPerm } from './permissions.js';
 import { kidView } from './util.js';
 import { phase2 } from './phase2.js';
@@ -58,7 +58,7 @@ async function postTaskToChat(db, me, t, { title, sub, key }) {
   const on = (await db.prepare("SELECT value FROM settings WHERE key = 'chat_task_posts'").first())?.value;
   if (on === '0') return;
   try {
-    if (await db.prepare('SELECT 1 FROM chat_messages WHERE deleted = 0 AND card LIKE ?').bind(`%"key":"${key}"%`).first()) return;
+    if (await db.prepare('SELECT 1 FROM chat_messages WHERE card LIKE ?').bind(`%"key":"${key}"%`).first()) return;
     const card = JSON.stringify({ type: 'task', title, sub, link: '#today', key });
     await db.prepare('INSERT INTO chat_messages (user_id, text, card) VALUES (?, ?, ?)').bind(me.id, '', card).run();
   } catch (e) { console.error('chat post', e.message); }
@@ -321,7 +321,7 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
         await postTaskToChat(db, me, t, { title: `✅ ${t.title}`, sub: `Done by ${who}${late} · +${late.includes('late') ? Math.floor(t.points / 2) : t.points} pts`, key: `task:${t.id}` });
       }
     }
-    if (!done) await db.prepare("UPDATE chat_messages SET deleted = 1 WHERE card LIKE ? OR card LIKE ?").bind(`%"key":"task:${t.id}"%`, `%"key":"morning:${t.assignee}:${t.due_date}"%`).run();
+    if (!done) await removeMessages(db, null, (await db.prepare("SELECT id FROM chat_messages WHERE card LIKE ? OR card LIKE ?").bind(`%"key":"task:${t.id}"%`, `%"key":"morning:${t.assignee}:${t.due_date}"%`).all()).results.map((r) => r.id));
     return json({ ok: true });
   }
   if (parts[0] === 'tasks' && parts[1] && !parts[2] && method === 'DELETE') {
@@ -418,9 +418,9 @@ async function guarded(req, env, db, url, path, parts, method, q, me) {
   if (rc) return rc;
   const ev = await eventApi({ req, db, path, parts, method, q, me, others });
   if (ev) return ev;
-  const ph = await photoApi({ req, db, path, parts, method, q, me, others });
+  const ph = await photoApi({ req, env, db, path, parts, method, q, me, others });
   if (ph) return ph;
-  const ch = await chatApi({ req, db, path, parts, method, q, me });
+  const ch = await chatApi({ req, env, db, path, parts, method, q, me });
   if (ch) return ch;
 
   const p2 = await phase2({ req, env, db, url, path, parts, method, q, me, others });
