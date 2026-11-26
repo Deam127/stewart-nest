@@ -50,9 +50,13 @@ async function main() {
   let cfg = readFileSync(CONFIG, 'utf8');
   if (!cfg.includes(db.uuid)) {
     cfg = cfg.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${db.uuid}"`);
-    writeFileSync(CONFIG, cfg);
     console.log(`Saved database id ${db.uuid} in ${CONFIG} ✔`);
   } else console.log('Ready ✔');
+  // The laptop's own data is stored under the original placeholder id — keep using it for local runs and exports
+  if (!/"preview_database_id"/.test(cfg)) {
+    cfg = cfg.replace(/("database_id":\s*"[^"]*")/, `$1,\n      // the laptop copy of the data (local runs) — keep this line\n      "preview_database_id": "00000000-0000-0000-0000-000000000000"`);
+  }
+  writeFileSync(CONFIG, cfg);
 
   // 3. photo storage
   say('Photo storage (R2)…');
