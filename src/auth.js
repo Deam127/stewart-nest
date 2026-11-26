@@ -20,23 +20,31 @@ const MIN_LEN = 6;
 // ---------- automatic schema upgrades ----------
 // Runs once per server start. Brings an existing database up to date without wiping data,
 // so there's nothing to run by hand after updating the app files.
-let schemaPromise = null;
-export function ensureSchema(db) {
-  // share one run between requests that arrive together; retry next time if it failed
-  schemaPromise = schemaPromise || runUpgrades(db).catch((e) => { schemaPromise = null; throw e; });
-  return schemaPromise;
-}
-async function runUpgrades(db) {
-  let v = 0;
-  try { v = Number((await db.prepare("SELECT value FROM settings WHERE key = 'schema_version'").first())?.value || 2); } catch { return; }
+// Cloudflare doesn't let one request wait on a promise created by another, so each request checks for itself
+// (cheap: one SELECT), and a version step is "claimed" in the database so two requests never apply it twice.
+let schemaDone = false;
+export async function ensureSchema(db) {
+  if (schemaDone) return;
+  let v;
+  try { v = Number((await db.prepare("SELECT value FROM settings WHERE key = 'schema_version'").first())?.value || 0); } catch { return; }
+  if (!v) { await db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('schema_version', '2')").run(); v = 2; }
+  const latest = Math.max(...Object.keys(UPGRADES).map(Number));
   for (const target of Object.keys(UPGRADES).map(Number).sort((a, b) => a - b)) {
     if (v >= target) continue;
-    for (const sql of UPGRADES[target]) {
-      try { await db.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(e.message)) { console.error('Upgrade failed:', sql.slice(0, 120)); throw e; } }
+    // claim this step; if another request already moved the version on, let it finish
+    const claim = await db.prepare("UPDATE settings SET value = ? WHERE key = 'schema_version' AND value = ?").bind(String(target), String(v)).run();
+    if (!claim.meta.changes) return;
+    try {
+      for (const sql of UPGRADES[target]) {
+        try { await db.prepare(sql).run(); } catch (e) { if (!/duplicate column/i.test(e.message)) { console.error('Upgrade failed:', sql.slice(0, 120)); throw e; } }
+      }
+    } catch (e) {
+      await db.prepare("UPDATE settings SET value = ? WHERE key = 'schema_version'").bind(String(v)).run(); // release so it can retry
+      throw e;
     }
-    await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', ?)").bind(String(target)).run();
     v = target;
   }
+  if (v >= latest) schemaDone = true;
 }
 
 // ---------- password hashing (PBKDF2-SHA256) ----------
